@@ -15,7 +15,7 @@ from ._report import write_monitor_report
 from ._tables import write_monitor_tables
 
 MONITOR_ARGS = ("days", "end_date", "house_width", "low_feed_kg", "max_unidentified_pct",
-                "max_feed_drop_pct", "iqr_k", "station")
+                "max_feed_drop_pct", "iqr_k", "station", "time_zone")
 
 
 def monitor_to_folder(data, out_dir, format: str = "xlsx", open: bool = False,

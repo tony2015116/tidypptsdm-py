@@ -26,12 +26,15 @@ def _add_monitor_args(p: argparse.ArgumentParser) -> None:
                    help="alert when station feed drops more than this %% (default 30)")
     g.add_argument("--iqr-k", type=float, default=1.5, help="Tukey fences for weight outliers (default 1.5)")
     g.add_argument("--station", choices=["nedap", "fire"], default=None, help="station type (default: detect)")
+    g.add_argument("--time-zone", default="local",
+                   help="convert times with a time zone (e.g. ...T00:34:17Z) to this zone: "
+                        "'local' (default, this computer) or a name such as Asia/Shanghai")
 
 
 def _monitor_kwargs(a: argparse.Namespace) -> dict:
     return dict(days=a.days, end_date=a.end_date, house_width=a.house_width, low_feed_kg=a.low_feed_kg,
                 max_unidentified_pct=a.max_unidentified_pct, max_feed_drop_pct=a.max_feed_drop_pct,
-                iqr_k=a.iqr_k, station=a.station)
+                iqr_k=a.iqr_k, station=a.station, time_zone=a.time_zone)
 
 
 def build_parser() -> argparse.ArgumentParser:

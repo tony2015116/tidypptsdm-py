@@ -259,13 +259,23 @@ def write_monitor_report(mon: Monitor, path, title: str | None = None, locations
         locs = _pick_locations(mon, locations)
         img = path / "img"
         img.mkdir(parents=True, exist_ok=True)
-        plots = []
-        for kind in REPORT_PLOTS:
-            plots += plot_monitor(mon, kind, locs)
-        sv = save_monitor_plots(plots, img, dpi=dpi, verbose=0)
-        if not sv["saved"].all():
-            msg(f"{int((~sv['saved']).sum())} plot(s) could not be saved.", "warning")
-        files = {(r["location"], r["type"]): Path(r["file"]).name for _, r in sv[sv["saved"]].iterrows()}
+        # one station at a time: draw, save and close, so that memory stays
+        # small with many stations
+        files = {}
+        n_bad = 0
+        step = max(1, len(locs) // 10)
+        for i, loc in enumerate(locs, start=1):
+            plots = []
+            for kind in REPORT_PLOTS:
+                plots += plot_monitor(mon, kind, [loc])
+            sv = save_monitor_plots(plots, img, dpi=dpi, verbose=0)
+            n_bad += int((~sv["saved"]).sum())
+            for _, r in sv[sv["saved"]].iterrows():
+                files[(r["location"], r["type"])] = Path(r["file"]).name
+            if len(locs) > 10 and (i % step == 0 or i == len(locs)):
+                msg(f"Plots: {i} of {len(locs)} stations", "info")
+        if n_bad:
+            msg(f"{n_bad} plot(s) could not be saved.", "warning")
         out = path / "index.html"
         out.write_text(_monitor_html(mon, locs, files, title or monitor_title(mon)), encoding="utf-8")
         msg(f"Report of {plural(len(locs), 'station')} written to {out}", "success")

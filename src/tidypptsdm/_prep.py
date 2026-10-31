@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 
 from ._messages import Abort, local_verbose, msg, plural
-from ._station import (STATION_REQUIRED, apply_format, as_station_format,
-                       builtin_format, check_station, detect_station)
+from ._station import (STATION_REQUIRED, TZ_NOTES, apply_format, as_station_format,
+                       builtin_format, check_station, detect_station, resolve_time_zone)
 
 VISIT_COLS = ["responder", "identified", "location", "date", "entry_time",
               "duration", "feed_intake", "weight"]
@@ -26,7 +26,7 @@ def is_visits(data) -> bool:
 def prep_visits(data: pd.DataFrame, station: str | None = None, format=None,
                 duration_max: float = DURATION_MAX,
                 misread_max_visits: int = MISREAD_MAX_VISITS,
-                verbose: int = 1) -> pd.DataFrame:
+                time_zone: str = "local", verbose: int = 1) -> pd.DataFrame:
     """Prepare a standard visit table from NEDAP or FIRE data.
 
     Args:
@@ -44,6 +44,9 @@ def prep_visits(data: pd.DataFrame, station: str | None = None, format=None,
             visits at another station, inside its visits at its own station,
             is a transponder misread: these visits become unidentified.
             Default 2.
+        time_zone: For raw data with time-zone aware times (e.g. ending in
+            ``Z``): convert them to this time zone, see
+            [read_station()][tidypptsdm.read_station]. Default ``"local"``.
         verbose: 0 (silent), 1 (summary) or 2 (details).
 
     Returns:
@@ -84,7 +87,11 @@ def prep_visits(data: pd.DataFrame, station: str | None = None, format=None,
                 station = detect_station(data) if station is None else check_station(station)
                 fmt = builtin_format(station)
             src = data["source_file"].to_numpy() if "source_file" in data.columns else None
-            dt = apply_format(data, fmt, station)
+            resolve_time_zone(time_zone)
+            TZ_NOTES.clear()
+            dt = apply_format(data, fmt, station, time_zone=time_zone)
+            for note in sorted(TZ_NOTES):
+                msg(note, "info")
             if src is not None:
                 dt["source_file"] = src
 

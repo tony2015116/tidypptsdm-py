@@ -143,11 +143,12 @@ def _fmt_date(d) -> str:
 
 # ---- input -------------------------------------------------------------------------
 
-def as_visits(data, station: str | None = None, verbose: int = 1) -> pd.DataFrame:
+def as_visits(data, station: str | None = None, verbose: int = 1,
+              time_zone: str = "local") -> pd.DataFrame:
     """Standard visit table from any input; always a copy."""
     if isinstance(data, (str, Path)) or (isinstance(data, (list, tuple)) and data
                                          and all(isinstance(d, (str, Path)) for d in data)):
-        data = read_station(data, station=station, verbose=verbose)
+        data = read_station(data, station=station, time_zone=time_zone, verbose=verbose)
     if not isinstance(data, pd.DataFrame):
         raise Abort("`data` must be station data: a folder or files of station exports, a raw "
                     "export as a DataFrame (e.g. load_example('nedap')), or the result of "
@@ -156,7 +157,7 @@ def as_visits(data, station: str | None = None, verbose: int = 1) -> pd.DataFram
         v = data.copy()
         v.attrs = dict(data.attrs)
     else:
-        v = prep_visits(data, station=station, verbose=verbose)
+        v = prep_visits(data, station=station, time_zone=time_zone, verbose=verbose)
     v["date"] = pd.to_datetime(v["date"]).dt.normalize()
     v["location"] = v["location"].map(lambda s: None if s is None or s != s else str(s))
     v["responder"] = v["responder"].map(lambda s: None if s is None or s != s else str(s))
@@ -566,7 +567,8 @@ class Monitor:
 def run_monitor(data, days: int = 7, end_date=None, house_width: int = 1,
                 low_feed_kg: float = 0.5, max_unidentified_pct: float = 5,
                 max_feed_drop_pct: float = 30, iqr_k: float = 1.5,
-                station: str | None = None, verbose: int = 1) -> Monitor:
+                station: str | None = None, time_zone: str = "local",
+                verbose: int = 1) -> Monitor:
     """Monitor the stations over the last days.
 
     Prepare the visits once, compute the daily tables of the monitoring
@@ -595,6 +597,10 @@ def run_monitor(data, days: int = 7, end_date=None, house_width: int = 1,
             (quartiles -/+ ``iqr_k`` times the interquartile range) are
             outliers. Default 1.5.
         station: ``"nedap"``, ``"fire"`` or ``None`` (detect).
+        time_zone: Times written with a time zone (e.g.
+            ``2025-01-24T00:34:17Z``) are converted to this time zone before
+            the days are counted. ``"local"`` (default): the time zone of this
+            computer; or a name such as ``"Asia/Shanghai"``.
         verbose: 0 (silent), 1 (summary) or 2 (details).
 
     Returns:
@@ -621,7 +627,7 @@ def run_monitor(data, days: int = 7, end_date=None, house_width: int = 1,
         max_unidentified_pct = _check_number(max_unidentified_pct, "max_unidentified_pct")
         max_feed_drop_pct = _check_number(max_feed_drop_pct, "max_feed_drop_pct")
         iqr_k = _check_number(iqr_k, "iqr_k")
-        v = as_visits(data, station, verbose)
+        v = as_visits(data, station, verbose, time_zone)
         win = monitor_window(v, days, end_date)
         st_type = v.attrs.get("station") or ""
         msg(f"Monitoring {st_type.upper()} stations: {_fmt_date(win.start)} to "

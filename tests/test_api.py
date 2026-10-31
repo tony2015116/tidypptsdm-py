@@ -189,3 +189,25 @@ def test_gui_builds():
     app = App(root)
     assert app.b_run["text"].endswith("运行监控")
     root.destroy()
+
+
+def test_iso_times_with_time_zone(tmp_path):
+    """NEDAP exports such as 2025-01-24T00:34:17Z are UTC: the days must be
+    counted in local time, so the results equal those of the plain export."""
+    raw = tp.load_example("nedap")
+    local = pd.to_datetime(raw["visit_time"])
+    iso = raw.copy()
+    iso["visit_time"] = (local - pd.Timedelta(hours=8)).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    iso.to_csv(tmp_path / "iso.csv", index=False)
+    d = tp.read_station(tmp_path / "iso.csv", time_zone="Asia/Shanghai", verbose=0)
+    assert (d["entry_time"] == local).all()
+    ref = tp.run_monitor(raw, days=7, verbose=0)
+    mon = tp.run_monitor(tmp_path / "iso.csv", days=7, time_zone="Asia/Shanghai", verbose=0)
+    pd.testing.assert_frame_equal(mon.stations, ref.stations)
+    pd.testing.assert_frame_equal(mon.pig_summary, ref.pig_summary)
+    # an offset in the text works as well, and times without zone stay as they are
+    iso["visit_time"] = local.dt.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    d2 = tp.prep_visits(iso, time_zone="Asia/Shanghai", verbose=0)
+    assert (d2["entry_time"].sort_values().to_numpy() == local.sort_values().to_numpy()).all()
+    with pytest.raises(tp.Abort, match="time zone"):
+        tp.read_station(tmp_path / "iso.csv", time_zone="Mars/Base", verbose=0)

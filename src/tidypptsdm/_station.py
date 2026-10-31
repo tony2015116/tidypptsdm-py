@@ -23,6 +23,7 @@ breed          text      breed (optional)
 from __future__ import annotations
 
 import csv
+import datetime
 import io
 import os
 import re
@@ -302,20 +303,57 @@ def _to_unit(x: pd.Series, unit: str, target: str) -> pd.Series:
     return x * 1000 if unit == "kg" else x / 1000
 
 
-def clock_time(x: pd.Series) -> pd.Series:
-    """Date-times as time-zone naive clock times (08:30 Beijing stays 08:30)."""
+# Time zone notes of the current read, printed once by read_station() /
+# prep_visits().
+TZ_NOTES: set[str] = set()
+
+_TZ_MARK = re.compile(r"(?:Z|[+-]\d{2}:?\d{2})$")
+
+
+def resolve_time_zone(time_zone="local"):
+    """The time zone to show visit times in: "local" (this computer), or a
+    name such as "Asia/Shanghai" or "UTC"."""
+    if time_zone is None or time_zone == "local":
+        return datetime.datetime.now().astimezone().tzinfo
+    try:
+        pd.Timestamp("2024-01-01", tz=time_zone)
+    except Exception as e:  # noqa: BLE001
+        raise Abort(f"Unknown time zone {time_zone!r}; use 'local' or a name such as 'Asia/Shanghai'.") from e
+    return time_zone
+
+
+def _tz_label(tz) -> str:
+    if isinstance(tz, str):
+        return tz
+    off = datetime.datetime.now(tz).utcoffset() or datetime.timedelta(0)
+    mins = int(off.total_seconds() // 60)
+    sign = "+" if mins >= 0 else "-"
+    return f"UTC{sign}{abs(mins) // 60:02d}:{abs(mins) % 60:02d}"
+
+
+def clock_time(x: pd.Series, time_zone="local") -> pd.Series:
+    """Date-times as time-zone naive clock times.
+
+    Time-zone aware values (e.g. read from ``2025-01-24T00:34:17Z``) are
+    converted to the clock time of ``time_zone`` first, so that a day runs
+    from local midnight to midnight: 00:34 UTC becomes 08:34 in Beijing.
+    """
     if isinstance(x.dtype, pd.DatetimeTZDtype):
-        return x.dt.tz_localize(None)
+        tz = resolve_time_zone(time_zone)
+        if str(x.dt.tz) != str(tz):
+            TZ_NOTES.add(f"Visit times with time zone {x.dt.tz} converted to local time {_tz_label(tz)}")
+        return x.dt.tz_convert(tz).dt.tz_localize(None)
     return pd.to_datetime(x)
 
 
-def _parse_time(cols: pd.DataFrame, unit: str, field: str, source: str) -> pd.Series:
+def _parse_time(cols: pd.DataFrame, unit: str, field: str, source: str,
+                time_zone="local") -> pd.Series:
     if cols.shape[1] == 1 and pd.api.types.is_datetime64_any_dtype(cols.iloc[:, 0]):
-        return clock_time(cols.iloc[:, 0]).astype("datetime64[ns]")
+        return clock_time(cols.iloc[:, 0], time_zone).astype("datetime64[ns]")
 
     def piece(s: pd.Series, k: int) -> pd.Series:
         if pd.api.types.is_datetime64_any_dtype(s):
-            s = clock_time(s)
+            s = clock_time(s, time_zone)
             return s.dt.strftime("%Y-%m-%d" if k == 0 else "%H:%M:%S")
         return s.astype("string").str.strip()
 
@@ -335,6 +373,17 @@ def _parse_time(cols: pd.DataFrame, unit: str, field: str, source: str) -> pd.Se
             if cand.notna().all():
                 out = pd.to_datetime(txt, format=fmt, errors="coerce")
                 break
+        if out is None and len(first):
+            # ISO 8601: 2025-01-24T00:34:17Z, 2025-01-24T08:34:17+08:00, ...
+            sample = first.head(50)
+            if sample.str.contains("T").all() or sample.str.contains(_TZ_MARK).all():
+                aware = sample.str.contains(_TZ_MARK).all()
+                try:
+                    out = pd.to_datetime(txt, format="ISO8601", errors="coerce", utc=aware)
+                except (ValueError, TypeError):
+                    out = None
+                if out is not None and aware:
+                    out = clock_time(out, time_zone)
         if out is None:
             out = pd.Series(pd.NaT, index=txt.index)
     bad = present & out.isna()
@@ -346,7 +395,8 @@ def _parse_time(cols: pd.DataFrame, unit: str, field: str, source: str) -> pd.Se
     return out.astype("datetime64[ns]")
 
 
-def apply_format(dt: pd.DataFrame, fmt: pd.DataFrame, station: str, source: str = "data") -> pd.DataFrame:
+def apply_format(dt: pd.DataFrame, fmt: pd.DataFrame, station: str, source: str = "data",
+                 time_zone="local") -> pd.DataFrame:
     """Map the columns of one export to the standard fields."""
     header = list(dt.columns)
     n = len(dt)
@@ -363,7 +413,7 @@ def apply_format(dt: pd.DataFrame, fmt: pd.DataFrame, station: str, source: str 
         if t == "text":
             val = _as_text(dt[cols[0]])
         elif t == "time":
-            val = _parse_time(dt[cols], unit, field, source)
+            val = _parse_time(dt[cols], unit, field, source, time_zone)
         elif t == "duration":
             val = _as_number(dt[cols[0]], field, source) * (60 if unit == "min" else 1)
         elif t == "mass_g":
@@ -443,7 +493,8 @@ def read_raw_file(path: Path, sheet=0) -> pd.DataFrame:
 
 
 def read_station(files, station: str | None = None, format=None,
-                 pattern: str = DEFAULT_PATTERN, sheet=0, verbose: int = 1) -> pd.DataFrame:
+                 pattern: str = DEFAULT_PATTERN, sheet=0, time_zone: str = "local",
+                 verbose: int = 1) -> pd.DataFrame:
     """Read NEDAP or FIRE exports into one standard table.
 
     Args:
@@ -458,6 +509,12 @@ def read_station(files, station: str | None = None, format=None,
             See [station_format()][tidypptsdm.station_format].
         pattern: Regular expression for file names when ``files`` is a folder.
         sheet: Sheet name or index for Excel files.
+        time_zone: Times written with a time zone, such as
+            ``2025-01-24T00:34:17Z`` (UTC), are converted to the clock time of
+            this time zone, so that days run from local midnight to midnight.
+            ``"local"`` (default): the time zone of this computer; or a name
+            such as ``"Asia/Shanghai"``. Times without a time zone are taken
+            as they are.
         verbose: 0 (silent), 1 (summary) or 2 (details per file).
 
     Returns:
@@ -481,12 +538,16 @@ def read_station(files, station: str | None = None, format=None,
             station = detect_station(next(iter(tables.values())))
             msg(f"Detected station type '{station}'", "info")
         fmt = as_station_format(format, station) if format is not None else builtin_format(station)
+        resolve_time_zone(time_zone)
+        TZ_NOTES.clear()
         parts = []
         for name, t in tables.items():
-            std = apply_format(t, fmt, station, source=name)
+            std = apply_format(t, fmt, station, source=name, time_zone=time_zone)
             std["source_file"] = name
             parts.append(std)
         out = pd.concat(parts, ignore_index=True)
+        for note in sorted(TZ_NOTES):
+            msg(note, "info")
         out.attrs["station"] = station
         out.attrs["ppt_standard"] = True
         msg(f"Read {len(out):,} rows from {plural(len(paths), 'file')} ({station.upper()})", "success")

@@ -23,6 +23,21 @@
 | `weight` | kg | `weight`（g 或 kg，自动判断） | `Weight`（kg） |
 | `trough_in`、`trough_out`、`topup` | g | — | `Ent Wt`、`Ext Wt`、`Topup Amount` |
 
+## 时区
+
+有些 NEDAP 导出的时间带时区标记，例如 `2025-01-24T00:34:17Z`：`Z` 表示 UTC 时间，北京时间是 08:34:17。tidypptsdm 会把带时区的时间换算成**这台电脑所在时区**的本地时间，再按天统计，这样每天从本地 0 点算起。日志里会提示 “Visit times with time zone UTC converted to local time …”。不带时区标记的时间不换算。
+
+| `time_zone` | 含义 |
+|---|---|
+| `"local"`（默认） | 换算到这台电脑的时区 |
+| `"Asia/Shanghai"` 等 | 换算到指定时区，例如在别的时区的电脑上处理国内的数据 |
+| `"UTC"` | 不换算，按原样使用（与 R 版 tidypptsda 的做法相同） |
+
+**怎么确认 `Z` 真的是 UTC**：看报告里的分小时图。猪一般在凌晨吃得最少。如果用 `--time-zone UTC` 原样读入后，采食最少的时段在 16–21 点（北京时间 0–5 点），说明确实是 UTC，应该用默认的换算；如果原样读入后最少的时段就在 0–5 点，说明导出的其实已是本地时间，请用 `--time-zone UTC`。
+
+!!! note "与 R 版的差别"
+    R 包 tidypptsda 读入 `...Z` 的时间时不做换算，按 UTC 划分日期。对这类数据，Python 版默认的结果与 R 版相差 8 小时的日期划分；用 `time_zone="UTC"` 时两者一致。
+
 ## 整理规则（`prep_visits()`）
 
 - 耳标号为空或 0 的访问是**未识别访问**：保留，`identified = False`，用于计算未识别比例；
