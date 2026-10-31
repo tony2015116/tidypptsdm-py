@@ -99,6 +99,14 @@ def _date_axis(ax, s: dict, rotate: bool = True) -> None:
             lab.set_ha("right")
 
 
+def _text_width_cm(fig, artists) -> float:
+    """Width in cm of the widest artist once drawn (legend, tick labels)."""
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    widths = [a.get_window_extent(renderer=r).width for a in artists if a.get_visible()]
+    return (max(widths) if widths else 0.0) / fig.dpi * 2.54
+
+
 def _plot_width(days: int) -> float:
     return max(16, 0.7 * days + 8)
 
@@ -169,7 +177,8 @@ def _plot_intake(mon: Monitor, loc: str) -> StationPlot:
     share = kg.div(total.where(total > 0, 1.0), axis=0) * 100
     colours = pig_palette(len(pigs))
     ncol = max(1, int(np.ceil(len(pigs) / 25)))
-    width = _plot_width(s["days"]) + 3.4 * ncol + 1
+    plot_w = _plot_width(s["days"])
+    width = plot_w + 6 * ncol          # first guess; corrected once the legend is measured
     height = max(18, 0.45 * len(pigs) / ncol + 6)
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(width * CM, height * CM))
     bar_w = 0.8
@@ -190,15 +199,23 @@ def _plot_intake(mon: Monitor, loc: str) -> StationPlot:
             ax2.text(xi, t, f"{t:.1f}", ha="center", va="bottom", fontsize=7, color=INK)
     _date_axis(ax2, s)
     handles = [matplotlib.patches.Patch(facecolor=c, label=l) for c, l in zip(colours, labels)]
-    fig.legend(handles=handles, title="Pig", loc="center right", ncol=ncol, fontsize=8,
-               title_fontsize=9, frameon=False, handlelength=1.2, handleheight=1.0)
+    leg = fig.legend(handles=handles, title="Pig", loc="center left", bbox_to_anchor=(0, 0.5),
+                     ncol=ncol, fontsize=8, title_fontsize=9, frameon=False,
+                     handlelength=1.2, handleheight=1.0)
     n_flag = sum(f in ("no_visit", "low_feed") for f in flags)
     sub = f"{len(pigs)} pigs; bottom: daily total above the bar"
     if n_flag:
         sub += f"; {n_flag} pig{'s' if n_flag > 1 else ''} marked in the legend on {s['end_date']:%Y-%m-%d}"
     _title(fig, title, sub)
-    legend_w = (3.4 * ncol + 0.6) / width
-    fig.subplots_adjust(left=1.6 / width, right=1 - legend_w, bottom=1.4 / height,
+    # size the figure so that the legend, however long the pig IDs are, sits
+    # right of the plots and inside the picture
+    left = 1.6
+    leg_w = _text_width_cm(fig, [leg])
+    width = left + plot_w + 0.5 + leg_w + 0.4
+    fig.set_size_inches(width * CM, height * CM)
+    right = (left + plot_w) / width
+    leg.set_bbox_to_anchor((right + 0.5 / width, 0.5), transform=fig.transFigure)
+    fig.subplots_adjust(left=left / width, right=right, bottom=1.4 / height,
                         top=_top_margin(fig), hspace=0.06)
     return StationPlot(loc, "intake", fig, width, height)
 
@@ -248,7 +265,11 @@ def _plot_heatmap(mon: Monitor, loc: str) -> StationPlot:
     cb.set_label("Feed (kg)", fontsize=8)
     cb.ax.tick_params(labelsize=7)
     _title(fig, title, f"x: no visit; o: below {s['low_feed_kg']:g} kg")
-    fig.subplots_adjust(left=2.0 / width, right=0.97, bottom=1.6 / height, top=_top_margin(fig))
+    label_w = _text_width_cm(fig, ax.get_yticklabels())
+    left = label_w + 0.6
+    width = left + _plot_width(s["days"]) + 3
+    fig.set_size_inches(width * CM, height * CM)
+    fig.subplots_adjust(left=left / width, right=0.97, bottom=1.6 / height, top=_top_margin(fig))
     return StationPlot(loc, "heatmap", fig, width, height)
 
 

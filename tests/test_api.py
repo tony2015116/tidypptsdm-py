@@ -235,3 +235,22 @@ def test_fixed_offset_time_zone(tmp_path):
     for tz in ("+08:00", "UTC+8"):
         d = tp.read_station(tmp_path / "iso.csv", time_zone=tz, verbose=0)
         assert (d["entry_time"] == local).all()
+
+
+def test_long_pig_ids_fit_in_the_plots():
+    v = tp.prep_visits(tp.load_example("nedap"), verbose=0)
+    v["responder"] = v["responder"].map(lambda r: f"9980260421{int(r):05d}" if isinstance(r, str) else r)
+    mon = tp.run_monitor(v, days=7, verbose=0)
+    for kind in ("intake", "heatmap"):
+        p = tp.plot_monitor(mon, kind, "101")[0]
+        fig = p.figure
+        fig.canvas.draw()
+        r = fig.canvas.get_renderer()
+        box = fig.bbox
+        items = fig.legends + [t for ax in fig.axes for t in ax.get_yticklabels()]
+        for it in items:
+            e = it.get_window_extent(renderer=r)
+            assert e.x0 >= box.x0 - 1 and e.x1 <= box.x1 + 1, kind
+        if kind == "intake":   # the legend does not overlap the bars
+            leg = fig.legends[0].get_window_extent(renderer=r)
+            assert all(leg.x0 >= ax.get_window_extent(renderer=r).x1 for ax in fig.axes)
