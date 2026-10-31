@@ -315,6 +315,10 @@ def resolve_time_zone(time_zone="local"):
     name such as "Asia/Shanghai" or "UTC"."""
     if time_zone is None or time_zone == "local":
         return datetime.datetime.now().astimezone().tzinfo
+    m = re.fullmatch(r"(?:UTC)?([+-])(\d{1,2}):?(\d{2})?", str(time_zone).strip())
+    if m:   # a fixed offset such as "+08:00" or "UTC+8": no time zone data needed
+        mins = int(m.group(2)) * 60 + int(m.group(3) or 0)
+        return datetime.timezone(datetime.timedelta(minutes=mins if m.group(1) == "+" else -mins))
     try:
         pd.Timestamp("2024-01-01", tz=time_zone)
     except Exception as e:  # noqa: BLE001
@@ -341,7 +345,8 @@ def clock_time(x: pd.Series, time_zone="local") -> pd.Series:
     if isinstance(x.dtype, pd.DatetimeTZDtype):
         tz = resolve_time_zone(time_zone)
         if str(x.dt.tz) != str(tz):
-            TZ_NOTES.add(f"Visit times with time zone {x.dt.tz} converted to local time {_tz_label(tz)}")
+            TZ_NOTES.add(f"Visit times with time zone {x.dt.tz} converted to {_tz_label(tz)}"
+                         + (" (the time zone of this computer)" if time_zone in (None, "local") else ""))
         return x.dt.tz_convert(tz).dt.tz_localize(None)
     return pd.to_datetime(x)
 

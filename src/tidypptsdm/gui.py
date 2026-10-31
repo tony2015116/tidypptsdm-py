@@ -25,10 +25,10 @@ def pd_today():
 DEFAULTS = {
     "data": "", "out": "", "days": 7, "house_width": 1, "low_feed_kg": 0.5,
     "max_unidentified_pct": 5.0, "max_feed_drop_pct": 30.0, "station": "自动识别",
-    "format": "xlsx", "time": "07:30", "time_zone": "本地（自动换算）", "end_date": "",
+    "format": "xlsx", "time": "07:30", "time_zone": "北京时间（UTC+8）", "end_date": "",
 }
 
-TZ_CHOICES = {"本地（自动换算）": "local", "UTC（不换算）": "UTC"}
+TZ_CHOICES = {"北京时间（UTC+8）": "+08:00", "电脑所在时区": "local", "UTC（不换算）": "UTC"}
 
 STATION_CHOICES = {"自动识别": None, "NEDAP": "nedap", "FIRE": "fire"}
 
@@ -123,7 +123,8 @@ class App:
         self.v_drop = tk.StringVar(value=str(s["max_feed_drop_pct"]))
         self.v_station = tk.StringVar(value=s["station"])
         self.v_format = tk.StringVar(value=s["format"])
-        self.v_tz = tk.StringVar(value=s.get("time_zone", DEFAULTS["time_zone"]))
+        tz = s.get("time_zone", DEFAULTS["time_zone"])
+        self.v_tz = tk.StringVar(value=tz if tz in TZ_CHOICES else DEFAULTS["time_zone"])
         self.v_end = tk.StringVar(value=s.get("end_date", ""))
         fields = [
             ("监控天数", self.v_days, "天"), ("栋号位数", self.v_house, "测定站编号前几位是栋号"),
@@ -248,7 +249,7 @@ class App:
         return dict(days=s["days"], house_width=s["house_width"], low_feed_kg=s["low_feed_kg"],
                     max_unidentified_pct=s["max_unidentified_pct"], max_feed_drop_pct=s["max_feed_drop_pct"],
                     station=STATION_CHOICES.get(s["station"]),
-                    time_zone=TZ_CHOICES.get(s["time_zone"], "local"))
+                    time_zone=TZ_CHOICES.get(s["time_zone"], "+08:00"))
 
     def _error(self, text: str) -> None:
         from tkinter import messagebox

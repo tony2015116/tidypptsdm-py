@@ -172,7 +172,7 @@ def test_cli_and_schedule(tmp_path):
     assert (day / "index.html").exists() and (day / "monitor_alerts.csv").exists()
     script = tp.schedule_monitor(ex, tmp_path / "out", days=5, low_feed_kg=1, register=False, verbose=0)
     text = script.read_text(encoding="utf-8")
-    assert "--days 5" in text and "--low-feed-kg 1" in text and " run " in text
+    assert "--days=5" in text and "--low-feed-kg=1" in text and " run " in text
     with pytest.raises(tp.Abort, match="time"):
         tp.schedule_monitor(ex, tmp_path, time="25:00", register=False, verbose=0)
     with pytest.raises(tp.Abort, match="Unknown argument"):
@@ -224,3 +224,14 @@ def test_old_data_note(tmp_path):
     past = tp.run_monitor(tp.load_example("nedap"), days=7, end_date="2024-04-01", verbose=0)
     assert past.settings["stale_note"] == ""
     assert past.stations["date"].max() == pd.Timestamp("2024-04-01")
+
+
+def test_fixed_offset_time_zone(tmp_path):
+    raw = tp.load_example("nedap").head(300)
+    local = pd.to_datetime(raw["visit_time"])
+    iso = raw.copy()
+    iso["visit_time"] = (local - pd.Timedelta(hours=8)).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    iso.to_csv(tmp_path / "iso.csv", index=False)
+    for tz in ("+08:00", "UTC+8"):
+        d = tp.read_station(tmp_path / "iso.csv", time_zone=tz, verbose=0)
+        assert (d["entry_time"] == local).all()

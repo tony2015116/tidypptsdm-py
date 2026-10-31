@@ -68,7 +68,7 @@ def _command(folder: Path, out_dir: Path, format: str, monitor_args: dict,
     for k, v in monitor_args.items():
         if v is None:
             continue
-        cmd += ["--" + k.replace("_", "-"), str(v)]
+        cmd.append(f"--{k.replace('_', '-')}={v}")   # "=" so that values such as -05:30 are kept
     return cmd
 
 
