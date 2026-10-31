@@ -22,6 +22,23 @@ def setup_tcl_tk() -> None:
     b = bundle_dir()
     if b is None:
         return
+    if os.name == "nt":
+        # Load the bundled Tcl/Tk DLLs by full path first. Otherwise Windows
+        # may pick tcl86t.dll / tk86t.dll of another program on the PATH
+        # (Anaconda, QGIS ...), whose version does not match the bundled
+        # scripts ("Can't find a usable tk.tcl").
+        import ctypes
+        try:
+            os.add_dll_directory(str(b))
+        except (OSError, AttributeError):
+            pass
+        for name in ("tcl86t.dll", "tk86t.dll"):
+            dll = b / name
+            if dll.exists():
+                try:
+                    ctypes.WinDLL(str(dll))
+                except OSError:
+                    pass
     for var, sub in (("TCL_LIBRARY", "_tcl_data"), ("TK_LIBRARY", "_tk_data")):
         d = b / sub
         if d.is_dir():
@@ -72,6 +89,9 @@ def diagnose() -> tuple[bool, list[str]]:
             n = len(list(d.rglob("*"))) if d.is_dir() else 0
             lines.append(f"{sub}: {'present' if d.is_dir() else 'MISSING'}, {n} files")
         lines.append(f"tk.tcl: {_required_tk_version(b / '_tk_data')}")
+        if os.name == "nt":
+            for name in ("tcl86t.dll", "tk86t.dll", "_tkinter.pyd"):
+                lines.append(f"bundled {name}: {'present' if (b / name).exists() else 'MISSING'}")
     for var in ("TCL_LIBRARY", "TK_LIBRARY"):
         lines.append(f"{var}={os.environ.get(var, '')}")
     ok = True

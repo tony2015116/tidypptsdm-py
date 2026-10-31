@@ -26,7 +26,7 @@ jobs:
         run: |
           $p = Start-Process -Wait -PassThru -FilePath "dist/tidypptsdm/tidypptsdm.exe" -ArgumentList "selftest", "--out", "selftest"
           $report = Get-Content selftest/tidypptsdm-selftest.txt
-          foreach ($line in $report) { Write-Output "::notice title=selftest::$line" }
+          ($report | Select-String "ERROR|MISSING|loaded from|started|window|tk.tcl") | ForEach-Object { Write-Output "::notice title=selftest::$_" }
           if ($p.ExitCode -ne 0) { Write-Output "::error title=selftest::the app window could not start"; exit 1 }
       - name: Self-test from a copy in another folder (as a user unzips it)
         shell: pwsh
@@ -35,7 +35,7 @@ jobs:
           $env:TCL_LIBRARY = "C:/nonexistent/tcl8.6"   # a stale variable set by another program
           $env:TK_LIBRARY = "C:/nonexistent/tk8.6"
           $p = Start-Process -Wait -PassThru -FilePath "$env:RUNNER_TEMP/unzipped/tidypptsdm/tidypptsdm.exe" -ArgumentList "selftest", "--out", "selftest2"
-          foreach ($line in (Get-Content selftest2/tidypptsdm-selftest.txt)) { Write-Output "::notice title=selftest-copy::$line" }
+          (Get-Content selftest2/tidypptsdm-selftest.txt | Select-String "ERROR|MISSING|loaded from|started|window") | ForEach-Object { Write-Output "::notice title=selftest-copy::$_" }
           if ($p.ExitCode -ne 0) { Write-Output "::error title=selftest-copy::the app window could not start"; exit 1 }
       - name: Smoke test (the windowed exe writes its messages to a log file)
         shell: pwsh
@@ -51,6 +51,14 @@ jobs:
         run: |
           Copy-Item README.md, LICENSE dist/tidypptsdm/
           Compress-Archive -Path dist/tidypptsdm -DestinationPath tidypptsdm-windows.zip
+      - name: Self-test of the zip as a user gets it
+        shell: pwsh
+        run: |
+          Expand-Archive tidypptsdm-windows.zip -DestinationPath "$env:RUNNER_TEMP/fromzip"
+          $p = Start-Process -Wait -PassThru -FilePath "$env:RUNNER_TEMP/fromzip/tidypptsdm/tidypptsdm.exe" -ArgumentList "selftest", "--out", "selftest3"
+          $r = Get-Content selftest3/tidypptsdm-selftest.txt
+          ($r | Select-String "ERROR|MISSING|loaded from|started|window") | ForEach-Object { Write-Output "::notice title=selftest-zip::$_" }
+          if ($p.ExitCode -ne 0) { Write-Output "::error title=selftest-zip::the app window could not start"; exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: tidypptsdm-windows
