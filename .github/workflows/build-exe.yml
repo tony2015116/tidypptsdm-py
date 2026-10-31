@@ -21,6 +21,22 @@ jobs:
           python-version: "3.12"
       - run: pip install ".[exe]"
       - run: pyinstaller --noconfirm packaging/tidypptsdm.spec
+      - name: Self-test of the desktop app (Tk window)
+        shell: pwsh
+        run: |
+          $p = Start-Process -Wait -PassThru -FilePath "dist/tidypptsdm/tidypptsdm.exe" -ArgumentList "selftest", "--out", "selftest"
+          $report = Get-Content selftest/tidypptsdm-selftest.txt
+          foreach ($line in $report) { Write-Output "::notice title=selftest::$line" }
+          if ($p.ExitCode -ne 0) { Write-Output "::error title=selftest::the app window could not start"; exit 1 }
+      - name: Self-test from a copy in another folder (as a user unzips it)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse dist/tidypptsdm "$env:RUNNER_TEMP/unzipped/tidypptsdm"
+          $env:TCL_LIBRARY = "C:/nonexistent/tcl8.6"   # a stale variable set by another program
+          $env:TK_LIBRARY = "C:/nonexistent/tk8.6"
+          $p = Start-Process -Wait -PassThru -FilePath "$env:RUNNER_TEMP/unzipped/tidypptsdm/tidypptsdm.exe" -ArgumentList "selftest", "--out", "selftest2"
+          foreach ($line in (Get-Content selftest2/tidypptsdm-selftest.txt)) { Write-Output "::notice title=selftest-copy::$line" }
+          if ($p.ExitCode -ne 0) { Write-Output "::error title=selftest-copy::the app window could not start"; exit 1 }
       - name: Smoke test (the windowed exe writes its messages to a log file)
         shell: pwsh
         run: |

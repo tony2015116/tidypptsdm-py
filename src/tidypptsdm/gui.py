@@ -336,8 +336,23 @@ class App:
 
 
 def main() -> None:
+    from ._tkcheck import diagnose, setup_tcl_tk, show_error
+    setup_tcl_tk()
     import tkinter as tk
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        ok, lines = diagnose()
+        report = Path.home() / "tidypptsdm-selftest.txt"
+        try:
+            report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+        show_error("tidypptsdm", "无法打开程序窗口（Tk 图形界面库启动失败）。\n\n"
+                   "请确认解压了整个 zip 文件夹，并且杀毒软件没有删除 _internal 文件夹里的文件；"
+                   "然后重新解压一次再试。\n\n"
+                   f"诊断信息已保存到：{report}\n请把这个文件发给维护者。\n\n" + "\n".join(lines[-8:]))
+        return
     App(root)
     root.mainloop()
 

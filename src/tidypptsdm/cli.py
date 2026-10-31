@@ -66,6 +66,9 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--station", choices=["nedap", "fire"], default="nedap")
 
     sub.add_parser("gui", help="open the desktop app")
+
+    t = sub.add_parser("selftest", help="check that the desktop app can start (writes a report)")
+    t.add_argument("--out", default=None, help="folder for the report tidypptsdm-selftest.txt")
     return p
 
 
@@ -116,6 +119,15 @@ def main(argv: list[str] | None = None) -> int:
             from .datasets import write_example
             print(write_example(Path(a.folder), a.station))
             return 0
+        if a.command == "selftest":
+            from ._tkcheck import diagnose
+            ok, lines = diagnose()
+            text = "\n".join(lines)
+            print(text)
+            if a.out:
+                Path(a.out).mkdir(parents=True, exist_ok=True)
+                (Path(a.out) / "tidypptsdm-selftest.txt").write_text(text + "\n", encoding="utf-8")
+            return 0 if ok else 1
         if a.command == "gui":
             from .gui import main as gui_main
             gui_main()
