@@ -1,6 +1,6 @@
 # 图与报告
 
-## 五种图
+## 四种图
 
 `tp.plot_monitor(mon, type)` 每台测定站画一张图，返回 [`StationPlot`](reference.md#tidypptsdm.StationPlot) 的列表；`tp.save_monitor_plots()` 按合适的尺寸保存为 PNG 或 PDF。下面的例子里，测定站 101 的一头猪（15983）最后两天没有访问。
 
@@ -15,12 +15,6 @@
 猪数、访问次数、未识别 %、占用时间、采食量、头均采食量和体重的逐日变化。体重线是各猪当天体重中位数的平均，灰色带是当天最轻到最重的猪。没有访问的日子标红。
 
 ![trend](assets/img/plot-trend.png)
-
-### 热图：`"heatmap"`
-
-每头猪每天的采食量；× 表示无访问，○ 表示低采食。窗口不超过 21 天时格子里写数值。报告里不包含此图。
-
-![heatmap](assets/img/plot-heatmap.png)
 
 ### 体重：`"weight"`
 

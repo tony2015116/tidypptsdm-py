@@ -128,7 +128,7 @@ def test_end_date_default_is_last_full_day():
 
 def test_plots_ascii_and_saved(mon, tmp_path):
     plots = []
-    for kind in ("trend", "intake", "heatmap", "weight", "hours"):
+    for kind in ("trend", "intake", "weight", "hours"):
         p = tp.plot_monitor(mon, kind)
         assert [x.location for x in p] == ["101", "102"]
         for x in p:
@@ -136,7 +136,7 @@ def test_plots_ascii_and_saved(mon, tmp_path):
             assert all(t.isascii() for t in texts), texts
         plots += p
     res = tp.save_monitor_plots(plots, tmp_path, verbose=0)
-    assert res["saved"].all() and len(res) == 10
+    assert res["saved"].all() and len(res) == 8
     with pytest.raises(tp.Abort, match="Unknown station"):
         tp.plot_monitor(mon, "trend", locations="999")
 
@@ -241,7 +241,7 @@ def test_long_pig_ids_fit_in_the_plots():
     v = tp.prep_visits(tp.load_example("nedap"), verbose=0)
     v["responder"] = v["responder"].map(lambda r: f"9980260421{int(r):05d}" if isinstance(r, str) else r)
     mon = tp.run_monitor(v, days=7, verbose=0)
-    for kind in ("intake", "heatmap"):
+    for kind in ("intake",):
         p = tp.plot_monitor(mon, kind, "101")[0]
         fig = p.figure
         fig.canvas.draw()

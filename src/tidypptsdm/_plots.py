@@ -20,7 +20,7 @@ from matplotlib.colors import LinearSegmentedColormap, to_hex  # noqa: E402
 from ._messages import Abort, local_verbose, msg  # noqa: E402
 from ._monitor import Monitor, natural_order  # noqa: E402
 
-PLOT_TYPES = ("trend", "intake", "heatmap", "weight", "hours")
+PLOT_TYPES = ("trend", "intake", "weight", "hours")
 CM = 1 / 2.54
 
 INK = "#1D2330"
@@ -220,59 +220,6 @@ def _plot_intake(mon: Monitor, loc: str) -> StationPlot:
     return StationPlot(loc, "intake", fig, width, height)
 
 
-# ---- heat map --------------------------------------------------------------------------------
-
-def _plot_heatmap(mon: Monitor, loc: str) -> StationPlot:
-    s = mon.settings
-    title = f"Station {loc} - feed intake per pig"
-    d = mon.pigs[mon.pigs["location"] == loc]
-    if len(d) == 0:
-        return _empty(loc, "heatmap", title, "No identified pig in the window")
-    pigs = natural_order(d["responder"])
-    dates = pd.date_range(s["start_date"], s["end_date"])
-    m = d.pivot_table(index="responder", columns="date", values="feed_kg", aggfunc="sum") \
-        .reindex(index=pigs, columns=dates)
-    width = _plot_width(s["days"]) + 3
-    height = max(8, 0.6 * len(pigs) + 4)
-    fig, ax = plt.subplots(figsize=(width * CM, height * CM))
-    top = max(float(np.nanmax(m.to_numpy())) if m.notna().any().any() else 0, 0.1)
-    cmap = LinearSegmentedColormap.from_list("blue", ["#EEF4FB", "#0F4C8A"])
-    img = ax.imshow(np.ma.masked_invalid(m.to_numpy(float)), aspect="auto", cmap=cmap, vmin=0, vmax=top,
-                    interpolation="nearest")
-    ax.set_yticks(range(len(pigs)), pigs, fontsize=8)
-    step = max(1, int(np.ceil(s["days"] / 14)))
-    idx = list(range(len(dates) - 1, -1, -step))[::-1]
-    ax.set_xticks(idx, [dates[i].strftime("%m-%d") for i in idx], rotation=45, ha="right", fontsize=8)
-    ax.set_xticks(np.arange(-0.5, len(dates)), minor=True)
-    ax.set_yticks(np.arange(-0.5, len(pigs)), minor=True)
-    ax.grid(which="minor", color="white", linewidth=1)
-    ax.tick_params(which="minor", length=0)
-    look = d.set_index(["responder", "date"])
-    for i, p in enumerate(pigs):
-        for j, day in enumerate(dates):
-            if (p, day) not in look.index:
-                continue
-            r = look.loc[(p, day)]
-            if r["status"] == "no_visit":
-                ax.plot(j, i, marker="x", color=RED, ms=7, mew=1.6)
-            else:
-                if s["days"] <= 21:
-                    ax.text(j, i, f"{r['feed_kg']:.1f}", ha="center", va="center", fontsize=6.5,
-                            color="white" if r["feed_kg"] > 0.55 * top else INK)
-                if r["status"] == "low_feed":
-                    ax.plot(j, i, marker="o", mfc="none", mec=ORANGE, ms=13, mew=1)
-    cb = fig.colorbar(img, ax=ax, fraction=0.04, pad=0.02)
-    cb.set_label("Feed (kg)", fontsize=8)
-    cb.ax.tick_params(labelsize=7)
-    _title(fig, title, f"x: no visit; o: below {s['low_feed_kg']:g} kg")
-    label_w = _text_width_cm(fig, ax.get_yticklabels())
-    left = label_w + 0.6
-    width = left + _plot_width(s["days"]) + 3
-    fig.set_size_inches(width * CM, height * CM)
-    fig.subplots_adjust(left=left / width, right=0.97, bottom=1.6 / height, top=_top_margin(fig))
-    return StationPlot(loc, "heatmap", fig, width, height)
-
-
 # ---- weights ----------------------------------------------------------------------------------
 
 def _plot_weight(mon: Monitor, loc: str) -> StationPlot:
@@ -323,8 +270,8 @@ def _plot_hours(mon: Monitor, loc: str) -> StationPlot:
     return StationPlot(loc, "hours", fig, width, height)
 
 
-_DRAW = {"trend": _plot_trend, "intake": _plot_intake, "heatmap": _plot_heatmap,
-         "weight": _plot_weight, "hours": _plot_hours}
+_DRAW = {"trend": _plot_trend, "intake": _plot_intake, "weight": _plot_weight,
+         "hours": _plot_hours}
 
 
 def _pick_locations(mon: Monitor, locations) -> list[str]:
@@ -352,8 +299,7 @@ def plot_monitor(mon: Monitor, type: str = "trend", locations=None) -> list[Stat
             ``"intake"``: stacked bars, one colour per pig: share of the
             station's feed (top) and kg (bottom) with the daily total; pigs
             without visit or with low feed on the last day are marked in the
-            legend. ``"heatmap"``: feed intake per pig and day as a heat map
-            (x: no visit, o: low feed). ``"weight"``: box plots of the
+            legend. ``"weight"``: box plots of the
             recorded body weights per day. ``"hours"``: visits, occupation
             time and feed intake per hour of the last day.
         locations: Stations to plot. Default ``None``: all.
