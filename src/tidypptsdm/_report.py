@@ -77,8 +77,9 @@ def _station_rows(last: pd.DataFrame, page_of: dict, n_alerts: dict) -> list[str
     rows = []
     for _, r in last.iterrows():
         na = n_alerts.get(r["location"], 0)
+        down = ' class="s-down"' if r["n_visits"] == 0 else ""
         rows.append(
-            f'<tr{" class=\"s-down\"" if r["n_visits"] == 0 else ""}><td class="id">{_link(r["location"], page_of)}</td>'
+            f'<tr{down}><td class="id">{_link(r["location"], page_of)}</td>'
             f'<td class="n">{_num(r["n_pigs"])}</td><td class="n">{_num(r["n_visits"])}</td>'
             f'<td class="n">{_num(r["pct_unidentified"], 1)}</td><td class="n">{_num(r["occupation_h"], 1)}</td>'
             f'<td class="n">{_num(r["feed_kg"], 1)}</td><td class="n">{_num(r["feed_per_pig_kg"], 2)}</td>'
@@ -173,9 +174,10 @@ def _monitor_html(mon: Monitor, locs: list[str], files: dict, title: str) -> str
          f'<td class="n">{_num(r["feed_kg"], 1)}</td><td class="n">{_num(r["feed_per_pig_kg"], 2)}</td>'
          f'<td class="n">{_num(r["weight_kg"], 1)}</td></tr>' for _, r in hl.iterrows()])
     d_end = _fmt_date(end)
+    alert_count = f' <span class="count">{len(a)}</span>' if len(a) else ""
     overview = ('<section class="page" id="p-0" data-title="Overview">'
                 f'<h1>Overview</h1><p class="lead">Last day: {d_end}</p>{cards}'
-                f'<h2>Alerts{f" <span class=\"count\">{len(a)}</span>" if len(a) else ""}</h2>'
+                f"<h2>Alerts{alert_count}</h2>"
                 + _alerts_html(a, page_of)
                 + f"<h2>Stations on {d_end}</h2>" + _table(STATION_HEAD, _station_rows(last, page_of, n_alerts))
                 + f"<h2>Houses on {d_end}</h2>" + house_html
