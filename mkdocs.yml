@@ -76,6 +76,7 @@ nav:
       - 每天定时运行: schedule.md
       - 读取数据: data.md
   - 函数参考: reference.md
+  - R 版: https://tony2015116.github.io/tidypptsdm/
   - 关于:
       - 与 R 版的关系: r.md
       - 开发与发布: develop.md

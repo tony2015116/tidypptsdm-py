@@ -11,7 +11,7 @@ HTML report and an Excel workbook.
 
 这是 R 包 [tidypptsdm](https://github.com/tony2015116/tidypptsdm) 的 Python 版本，**计算结果与 R 版逐表一致**（测试中用两份示例数据对比）。
 
-文档：<https://tony2015116.github.io/tidypptsdm-py/>
+文档：<https://tony2015116.github.io/tidypptsdm-py/>　·　R 版：<https://tony2015116.github.io/tidypptsdm/>
 
 ## 三种用法
 
