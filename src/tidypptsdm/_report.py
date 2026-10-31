@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import html
 import json
+import os
+import sys
 import webbrowser
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
 from urllib.parse import quote
@@ -18,6 +22,100 @@ from ._monitor import Monitor, _fmt_date
 from ._plots import _pick_locations, plot_monitor, save_monitor_plots
 
 REPORT_PLOTS = ("trend", "intake", "weight", "hours")
+MAX_WORKERS = 8           # more processes add memory but little speed
+MIN_PARALLEL = 6          # fewer stations: starting the processes costs more than it saves
+
+
+# ---- drawing the plots, one station at a time or on several cores -------------------------
+
+def _draw_station(mon: Monitor, loc: str, img: Path, dpi: int) -> list[tuple]:
+    plots = []
+    for kind in REPORT_PLOTS:
+        plots += plot_monitor(mon, kind, [loc])
+    sv = save_monitor_plots(plots, img, dpi=dpi, verbose=0)
+    return [(r.location, r.type, Path(r.file).name, bool(r.saved)) for r in sv.itertuples()]
+
+
+def _draw_chunk(mon: Monitor, locs: list[str], img: Path, dpi: int) -> list[tuple]:
+    out = []
+    for loc in locs:
+        out += _draw_station(mon, loc, img, dpi)
+    return out
+
+
+def _subset(mon: Monitor, locs: list[str]) -> Monitor:
+    """The rows the plots of these stations need (sent to a worker process)."""
+    keep = set(locs)
+
+    def f(d: pd.DataFrame) -> pd.DataFrame:
+        return d[d["location"].isin(keep)] if "location" in d.columns else d.iloc[:0]
+
+    return Monitor(stations=f(mon.stations), houses=mon.houses.iloc[:0], pigs=f(mon.pigs),
+                   pig_summary=f(mon.pig_summary), hours=f(mon.hours), alerts=f(mon.alerts),
+                   visits=f(mon.visits), settings=mon.settings)
+
+
+def _n_workers(workers: int | None, n_locs: int) -> int:
+    if workers is None:
+        if n_locs < MIN_PARALLEL:
+            return 1
+        cpus = os.process_cpu_count() if hasattr(os, "process_cpu_count") else os.cpu_count()
+        workers = min(MAX_WORKERS, cpus or 1)
+    return max(1, min(int(workers), n_locs))
+
+
+@contextmanager
+def _no_main_rerun():
+    """New processes on Windows and macOS start by running the main script
+    again. A script without ``if __name__ == "__main__":`` would then read
+    the data again. The workers only need tidypptsdm, so hide the script
+    while they start (the exe and ``python -m`` are not affected)."""
+    main = sys.modules.get("__main__")
+    path = getattr(main, "__file__", None)
+    hide = (main is not None and path is not None and getattr(main, "__spec__", None) is None
+            and not getattr(sys, "frozen", False))
+    if hide:
+        del main.__file__
+    try:
+        yield
+    finally:
+        if hide:
+            main.__file__ = path
+
+
+def _draw_all(mon: Monitor, locs: list[str], img: Path, dpi: int, workers: int,
+              progress) -> list[tuple]:
+    if workers > 1:
+        # round robin, so that every chunk has stations from all houses
+        chunks = [locs[i::workers * 3] for i in range(min(len(locs), workers * 3))]
+        rows, done = [], set()
+        ex = None
+        try:
+            with _no_main_rerun():  # the processes start while the jobs are handed out
+                ex = ProcessPoolExecutor(max_workers=workers)
+                futures = {ex.submit(_draw_chunk, _subset(mon, c), c, img, dpi): c for c in chunks}
+            for fut in as_completed(futures):
+                rows += fut.result()
+                done.update(futures[fut])
+                progress(len(done))
+            return rows
+        except Exception as e:  # noqa: BLE001 - fall back to one process
+            msg(f"Drawing on {workers} cores failed ({type(e).__name__}: {e}); "
+                "drawing the other stations one at a time.", "warning")
+        finally:
+            if ex is not None:
+                ex.shutdown(wait=True, cancel_futures=True)
+        locs = [l for l in locs if l not in done]
+        out = rows
+    else:
+        out, done = [], set()
+    for loc in locs:
+        out += _draw_station(mon, loc, img, dpi)
+        done.add(loc)
+        progress(len(done))
+    return out
+
+
 STATUS_LABEL = {"ok": "ok", "low_feed": "low feed", "no_visit": "no visit",
                 "danger": "danger", "warning": "warning"}
 
@@ -230,7 +328,8 @@ def _monitor_html(mon: Monitor, locs: list[str], files: dict, title: str) -> str
 
 
 def write_monitor_report(mon: Monitor, path, title: str | None = None, locations=None,
-                         dpi: int = 150, open: bool = False, verbose: int = 1) -> Path:
+                         dpi: int = 150, open: bool = False, workers: int | None = None,
+                         verbose: int = 1) -> Path:
     """Write an HTML report to browse station by station.
 
     Writes ``index.html`` and the plots (``img/``) into ``path``. Open
@@ -248,6 +347,9 @@ def write_monitor_report(mon: Monitor, path, title: str | None = None, locations
         locations: Stations to include. Default ``None``: all.
         dpi: Resolution of the plots. Default 150.
         open: Open the report in the web browser when done.
+        workers: Number of processes that draw the plots at the same time.
+            Default ``None``: one per CPU core (at most 8) when there are 6
+            stations or more, otherwise 1. ``1`` draws one station at a time.
         verbose: 0 (silent) or 1.
 
     Returns:
@@ -262,21 +364,20 @@ def write_monitor_report(mon: Monitor, path, title: str | None = None, locations
         locs = _pick_locations(mon, locations)
         img = path / "img"
         img.mkdir(parents=True, exist_ok=True)
-        # one station at a time: draw, save and close, so that memory stays
-        # small with many stations
-        files = {}
-        n_bad = 0
+        n_workers = _n_workers(workers, len(locs))
         step = max(1, len(locs) // 10)
-        for i, loc in enumerate(locs, start=1):
-            plots = []
-            for kind in REPORT_PLOTS:
-                plots += plot_monitor(mon, kind, [loc])
-            sv = save_monitor_plots(plots, img, dpi=dpi, verbose=0)
-            n_bad += int((~sv["saved"]).sum())
-            for _, r in sv[sv["saved"]].iterrows():
-                files[(r["location"], r["type"])] = Path(r["file"]).name
-            if len(locs) > 10 and (i % step == 0 or i == len(locs)):
-                msg(f"Plots: {i} of {len(locs)} stations", "info")
+        shown = [0]
+
+        def progress(n: int) -> None:
+            if len(locs) > 10 and (n - shown[0] >= step or n == len(locs)):
+                shown[0] = n
+                msg(f"Plots: {n} of {len(locs)} stations", "info")
+
+        if n_workers > 1 and len(locs) > 10:
+            msg(f"Drawing the plots on {n_workers} cores", "info")
+        rows = _draw_all(mon, locs, img, dpi, n_workers, progress)
+        files = {(l, t): f for l, t, f, ok in rows if ok}
+        n_bad = sum(not ok for *_, ok in rows)
         if n_bad:
             msg(f"{n_bad} plot(s) could not be saved.", "warning")
         out = path / "index.html"

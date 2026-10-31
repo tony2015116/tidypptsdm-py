@@ -15,6 +15,7 @@ tidypptsdm run D:/nedap/exports --out D:/nedap/monitor --days 7 --open
 | `--out` | 结果文件夹（必填） | |
 | `--format` | `xlsx` 或 `csv` | `xlsx` |
 | `--open` | 完成后在浏览器中打开报告 | |
+| `--workers` | 同时作图的进程数，`1` 为一次画一台测定站 | 每核一个，最多 8 个（6 台测定站以上） |
 | `-q` | 不打印信息 | |
 | `--days` | 监控天数 | 7 |
 | `--end-date` | 最后一天，`YYYY-MM-DD` | 最后一个完整日 |

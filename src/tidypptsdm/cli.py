@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--out", required=True, help="folder for the results; one subfolder per day")
     r.add_argument("--format", choices=["xlsx", "csv"], default="xlsx", help="tables (default xlsx)")
     r.add_argument("--open", action="store_true", help="open the report in the web browser")
+    r.add_argument("--workers", type=int, default=None,
+                   help="processes that draw the plots (default: one per core, at most 8)")
     r.add_argument("-q", "--quiet", action="store_true", help="no messages")
     _add_monitor_args(r)
 
@@ -112,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             from ._schedule import monitor_to_folder
             msg(f"tidypptsdm {__version__}: run started {datetime.datetime.now():%Y-%m-%d %H:%M:%S}", "h1")
             res = monitor_to_folder(a.data, a.out, format=a.format, open=a.open,
-                                    verbose=0 if a.quiet else 1, **_monitor_kwargs(a))
+                                    workers=a.workers, verbose=0 if a.quiet else 1, **_monitor_kwargs(a))
             n_danger = int((res["monitor"].alerts["level"] == "danger").sum())
             return 2 if n_danger else 0
         if a.command == "schedule":

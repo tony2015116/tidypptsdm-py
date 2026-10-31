@@ -19,7 +19,7 @@ MONITOR_ARGS = ("days", "end_date", "house_width", "low_feed_kg", "max_unidentif
 
 
 def monitor_to_folder(data, out_dir, format: str = "xlsx", open: bool = False,
-                      verbose: int = 1, **monitor_args) -> dict:
+                      workers: int | None = None, verbose: int = 1, **monitor_args) -> dict:
     """Run the monitor and write the report and the tables into
     ``out_dir/<last day>/``.
 
@@ -32,6 +32,8 @@ def monitor_to_folder(data, out_dir, format: str = "xlsx", open: bool = False,
         out_dir: Folder for the results; one subfolder per day.
         format: Format of the tables, ``"xlsx"`` or ``"csv"``.
         open: Open the report in the web browser when done.
+        workers: Processes that draw the plots, see
+            [write_monitor_report()][tidypptsdm.write_monitor_report].
         verbose: 0 (silent), 1 or 2.
         **monitor_args: Arguments of ``run_monitor()`` such as ``days``,
             ``house_width`` or ``low_feed_kg``.
@@ -45,7 +47,7 @@ def monitor_to_folder(data, out_dir, format: str = "xlsx", open: bool = False,
     with local_verbose(verbose):
         mon = run_monitor(data, verbose=verbose, **monitor_args)
         folder = Path(out_dir) / _fmt_date(mon.settings["end_date"])
-        report = write_monitor_report(mon, folder, open=open, verbose=verbose)
+        report = write_monitor_report(mon, folder, open=open, workers=workers, verbose=verbose)
         tables = write_monitor_tables(mon, folder, format=format, verbose=verbose)
         return {"monitor": mon, "folder": folder, "report": report, "tables": tables}
 

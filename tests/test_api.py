@@ -149,6 +149,18 @@ def test_report(mon, tmp_path):
     assert len(list((tmp_path / "img").glob("*.png"))) == 2 * 4
 
 
+def test_report_on_several_cores_is_the_same(mon, tmp_path):
+    from tidypptsdm._report import _n_workers
+    one = tp.write_monitor_report(mon, tmp_path / "one", dpi=40, workers=1, verbose=0)
+    two = tp.write_monitor_report(mon, tmp_path / "two", dpi=40, workers=2, verbose=0)
+    assert one.read_text(encoding="utf-8") == two.read_text(encoding="utf-8")
+    a = {f.name: f.read_bytes() for f in (tmp_path / "one" / "img").iterdir()}
+    b = {f.name: f.read_bytes() for f in (tmp_path / "two" / "img").iterdir()}
+    assert len(a) == 8 and a == b
+    assert _n_workers(None, 2) == 1 and _n_workers(1, 50) == 1 and _n_workers(4, 2) == 2
+    assert 1 <= _n_workers(None, 50) <= 8
+
+
 def test_excel_and_csv(mon, tmp_path):
     from openpyxl import load_workbook
     xl = tp.write_monitor_tables(mon, tmp_path, verbose=0)

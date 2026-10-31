@@ -46,11 +46,28 @@ jobs:
           Get-Content smoke/out/tidypptsdm.log
           if (-not (Test-Path smoke/out/2024-05-25/index.html)) { throw "no report" }
           if (-not (Test-Path smoke/out/2024-05-25/monitor.xlsx)) { throw "no workbook" }
+      - name: Plots on several cores in the exe (same files, faster)
+        shell: pwsh
+        run: |
+          python packaging/many_stations.py smoke/many 12
+          $exe = "dist/tidypptsdm/tidypptsdm.exe"
+          $t1 = Measure-Command { Start-Process -Wait -FilePath $exe -ArgumentList "run", "smoke/many", "--out", "par/one", "--workers", "1" }
+          $tn = Measure-Command { Start-Process -Wait -FilePath $exe -ArgumentList "run", "smoke/many", "--out", "par/auto" }
+          Get-Content par/auto/tidypptsdm.log | Select-String "cores|failed|written" | ForEach-Object { Write-Output "::notice title=parallel-log::$_" }
+          Write-Output "::notice title=parallel::cores=$([Environment]::ProcessorCount) one=$([int]$t1.TotalSeconds)s auto=$([int]$tn.TotalSeconds)s"
+          $d1 = Get-ChildItem par/one -Directory | Select-Object -First 1
+          $dn = Get-ChildItem par/auto -Directory | Select-Object -First 1
+          $h1 = Get-ChildItem "$($d1.FullName)/img" | ForEach-Object { "$($_.Name) $((Get-FileHash $_.FullName -Algorithm MD5).Hash)" }
+          $hn = Get-ChildItem "$($dn.FullName)/img" | ForEach-Object { "$($_.Name) $((Get-FileHash $_.FullName -Algorithm MD5).Hash)" }
+          if ($h1.Count -ne 48) { Write-Output "::error title=parallel::expected 48 plots, got $($h1.Count)"; exit 1 }
+          if (Compare-Object $h1 $hn) { Write-Output "::error title=parallel::plots differ"; exit 1 }
+          if (-not (Select-String -Path par/auto/tidypptsdm.log -Pattern "cores" -Quiet)) { Write-Output "::error title=parallel::did not draw on several cores"; exit 1 }
+          if (Select-String -Path par/auto/tidypptsdm.log -Pattern "failed" -Quiet) { Write-Output "::error title=parallel::fell back to one core"; exit 1 }
       - name: Scheduled task really runs the exe (register, run now, check, remove)
         shell: pwsh
         run: |
           $exe = (Resolve-Path "dist/tidypptsdm/tidypptsdm.exe").Path
-          $ex = Join-Path $PWD "smoke/ex"; $out = Join-Path $PWD "sched/out"
+          $ex = Join-Path $PWD "smoke/many"; $out = Join-Path $PWD "sched/out"
           $p = Start-Process -Wait -PassThru -FilePath $exe -ArgumentList "schedule", "`"$ex`"", "--out", "`"$out`"", "--time", "23:59", "--days", "7"
           if ($p.ExitCode -ne 0) { Write-Output "::error title=schedule::register failed"; Get-Content "$out/tidypptsdm.log" -ErrorAction SilentlyContinue; exit 1 }
           $t = Get-ScheduledTask -TaskName tidypptsdm_monitor
@@ -59,12 +76,14 @@ jobs:
           if ($t.Settings.DisallowStartIfOnBatteries -or -not $t.Settings.StartWhenAvailable) { Write-Output "::error title=task::wrong settings"; exit 1 }
           Start-ScheduledTask -TaskName tidypptsdm_monitor
           $ok = $false
-          for ($i = 0; $i -lt 60; $i++) { Start-Sleep 5; if (Test-Path "$out/2024-05-25/index.html") { $ok = $true; break } }
+          for ($i = 0; $i -lt 60; $i++) { Start-Sleep 5; if (Get-ChildItem "$out/*/index.html" -ErrorAction SilentlyContinue) { $ok = $true; break } }
           $info = Get-ScheduledTaskInfo -TaskName tidypptsdm_monitor
           Write-Output "::notice title=task::last run $($info.LastRunTime) result $($info.LastTaskResult) report=$ok"
           Get-Content "$out/tidypptsdm.log" -ErrorAction SilentlyContinue | Select-Object -Last 6 | ForEach-Object { Write-Output "::notice title=task-log::$_" }
           Unregister-ScheduledTask -TaskName tidypptsdm_monitor -Confirm:$false
           if (-not $ok) { Write-Output "::error title=task::the scheduled run wrote no report"; exit 1 }
+          if (-not (Select-String -Path "$out/tidypptsdm.log" -Pattern "cores" -Quiet)) { Write-Output "::error title=task::the scheduled run did not draw on several cores"; exit 1 }
+          if (Select-String -Path "$out/tidypptsdm.log" -Pattern "failed" -Quiet) { Write-Output "::error title=task::the scheduled run fell back to one core"; exit 1 }
       - name: Zip
         shell: pwsh
         run: |
