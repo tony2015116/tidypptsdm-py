@@ -160,8 +160,9 @@ class App:
         ttk.Entry(f_sch, textvariable=self.v_time, width=7).pack(side="left", padx=6)
         ttk.Button(f_sch, text="设为每天定时", command=self.schedule).pack(side="left")
         ttk.Button(f_sch, text="取消定时", command=self.unschedule).pack(side="left", padx=6)
-        ttk.Label(f_sch, text="用当前的文件夹和设置，每天在这个时间自动生成报告",
-                  foreground="#667085").pack(side="left", padx=6)
+        ttk.Button(f_sch, text="查看定时状态", command=self.task_status).pack(side="left")
+        ttk.Button(f_sch, text="立即运行一次", command=self.task_run_now).pack(side="left", padx=6)
+        ttk.Label(f_sch, text="关闭本程序后照常运行", foreground="#667085").pack(side="left", padx=6)
 
         # ---- log
         f_log = ttk.LabelFrame(main, text="运行信息", padding=4)
@@ -323,11 +324,34 @@ class App:
             self._error(str(e))
             return
         if os.name == "nt":
-            messagebox.showinfo("tidypptsdm", f"已设为每天 {s['time']} 自动运行。\n\n"
-                                f"报告写到：{s['out']}\\<日期>\n脚本：{script}\n\n"
-                                "电脑需要开机；可在 Windows“任务计划程序”中查看任务 tidypptsdm_monitor。")
+            messagebox.showinfo("tidypptsdm", f"已设为每天 {s['time']} 自动运行，关闭本程序后照常运行。\n\n"
+                                f"报告写到：{s['out']}\\<数据最后一天的日期>\n"
+                                f"运行日志：{s['out']}\\tidypptsdm.log\n\n"
+                                "到时电脑需要开着并已登录（可以锁屏）；如果当时关机或睡眠，开机后会补跑一次。"
+                                "用电池时也会运行。\n\n"
+                                "可以点“立即运行一次”检查；点“查看定时状态”看上次运行的时间和结果。")
         else:
             messagebox.showinfo("tidypptsdm", f"脚本已写到 {script}。\n请用 crontab -e 加入运行信息中的那一行。")
+
+    def task_status(self) -> None:
+        from ._schedule import task_status
+        text = task_status(out_dir=self.v_out.get().strip() or None)
+        self._append("\n-- 定时任务状态 --\n" + text + "\n")
+        self.status.set("“上次结果”为 0 表示成功；日志的最后几行见运行信息。")
+
+    def task_run_now(self) -> None:
+        from tkinter import messagebox
+
+        from ._messages import Abort
+        from ._schedule import run_task_now
+        try:
+            run_task_now()
+        except Abort as e:
+            self._error(str(e) + "\n\n请先点“设为每天定时”。")
+            return
+        messagebox.showinfo("tidypptsdm", "已在后台启动定时任务（不会弹出窗口）。\n\n"
+                            "数据多时需要一两分钟；完成后点“查看定时状态”，"
+                            "日志最后应有 “Report … written to …”。")
 
     def unschedule(self) -> None:
         from tkinter import messagebox

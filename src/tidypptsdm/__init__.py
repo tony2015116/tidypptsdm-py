@@ -11,7 +11,8 @@ from ._monitor import (Monitor, monitor_hours, monitor_houses, monitor_pigs,
 from ._plots import StationPlot, plot_monitor, save_monitor_plots
 from ._prep import prep_visits
 from ._report import write_monitor_report
-from ._schedule import monitor_to_folder, schedule_monitor, unschedule_monitor
+from ._schedule import (monitor_to_folder, run_task_now, schedule_monitor, task_status,
+                        unschedule_monitor)
 from ._station import read_station, station_format
 from ._tables import write_monitor_tables
 from .datasets import load_example, write_example
@@ -23,6 +24,6 @@ __all__ = [
     "monitor_houses", "monitor_pigs", "monitor_stations", "monitor_to_folder",
     "plot_monitor", "prep_visits", "read_station", "run_monitor",
     "save_monitor_plots", "schedule_monitor", "station_format",
-    "unschedule_monitor", "wide_table", "write_example",
+    "run_task_now", "task_status", "unschedule_monitor", "wide_table", "write_example",
     "write_monitor_report", "write_monitor_tables",
 ]

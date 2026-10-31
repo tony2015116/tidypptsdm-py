@@ -46,6 +46,25 @@ jobs:
           Get-Content smoke/out/tidypptsdm.log
           if (-not (Test-Path smoke/out/2024-05-25/index.html)) { throw "no report" }
           if (-not (Test-Path smoke/out/2024-05-25/monitor.xlsx)) { throw "no workbook" }
+      - name: Scheduled task really runs the exe (register, run now, check, remove)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "dist/tidypptsdm/tidypptsdm.exe").Path
+          $ex = Join-Path $PWD "smoke/ex"; $out = Join-Path $PWD "sched/out"
+          $p = Start-Process -Wait -PassThru -FilePath $exe -ArgumentList "schedule", "`"$ex`"", "--out", "`"$out`"", "--time", "23:59", "--days", "7"
+          if ($p.ExitCode -ne 0) { Write-Output "::error title=schedule::register failed"; Get-Content "$out/tidypptsdm.log" -ErrorAction SilentlyContinue; exit 1 }
+          $t = Get-ScheduledTask -TaskName tidypptsdm_monitor
+          Write-Output "::notice title=task::action $($t.Actions[0].Execute) $($t.Actions[0].Arguments)"
+          Write-Output "::notice title=task::battery-start=$(-not $t.Settings.DisallowStartIfOnBatteries) catch-up=$($t.Settings.StartWhenAvailable) trigger=$($t.Triggers[0].StartBoundary)"
+          if ($t.Settings.DisallowStartIfOnBatteries -or -not $t.Settings.StartWhenAvailable) { Write-Output "::error title=task::wrong settings"; exit 1 }
+          Start-ScheduledTask -TaskName tidypptsdm_monitor
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) { Start-Sleep 5; if (Test-Path "$out/2024-05-25/index.html") { $ok = $true; break } }
+          $info = Get-ScheduledTaskInfo -TaskName tidypptsdm_monitor
+          Write-Output "::notice title=task::last run $($info.LastRunTime) result $($info.LastTaskResult) report=$ok"
+          Get-Content "$out/tidypptsdm.log" -ErrorAction SilentlyContinue | Select-Object -Last 6 | ForEach-Object { Write-Output "::notice title=task-log::$_" }
+          Unregister-ScheduledTask -TaskName tidypptsdm_monitor -Confirm:$false
+          if (-not $ok) { Write-Output "::error title=task::the scheduled run wrote no report"; exit 1 }
       - name: Zip
         shell: pwsh
         run: |

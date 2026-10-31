@@ -61,6 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-register", action="store_true", help="only write the script")
     _add_monitor_args(s)
 
+    st = sub.add_parser("status", help="state of the daily task and the end of its log")
+    st.add_argument("--out", default=None, help="result folder (to show its log)")
+    st.add_argument("--taskname", default="tidypptsdm_monitor")
+
     u = sub.add_parser("unschedule", help="remove the daily task (Windows)")
     u.add_argument("taskname", nargs="?", default="tidypptsdm_monitor")
 
@@ -102,7 +106,11 @@ def main(argv: list[str] | None = None) -> int:
     _ensure_streams(a)
     try:
         if a.command == "run":
+            import datetime
+
+            from ._messages import msg
             from ._schedule import monitor_to_folder
+            msg(f"tidypptsdm {__version__}: run started {datetime.datetime.now():%Y-%m-%d %H:%M:%S}", "h1")
             res = monitor_to_folder(a.data, a.out, format=a.format, open=a.open,
                                     verbose=0 if a.quiet else 1, **_monitor_kwargs(a))
             n_danger = int((res["monitor"].alerts["level"] == "danger").sum())
@@ -113,6 +121,10 @@ def main(argv: list[str] | None = None) -> int:
             kw.pop("end_date")      # a daily task always ends on the last full day
             schedule_monitor(a.data, a.out, time=a.time, taskname=a.taskname, format=a.format,
                              register=not a.no_register, **kw)
+            return 0
+        if a.command == "status":
+            from ._schedule import task_status
+            print(task_status(a.taskname, a.out))
             return 0
         if a.command == "unschedule":
             from ._schedule import unschedule_monitor
