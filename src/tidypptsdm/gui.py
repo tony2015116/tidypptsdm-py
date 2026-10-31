@@ -20,8 +20,10 @@ SETTINGS_FILE = Path.home() / ".tidypptsdm.json"
 DEFAULTS = {
     "data": "", "out": "", "days": 7, "house_width": 1, "low_feed_kg": 0.5,
     "max_unidentified_pct": 5.0, "max_feed_drop_pct": 30.0, "station": "自动识别",
-    "format": "xlsx", "time": "07:30",
+    "format": "xlsx", "time": "07:30", "time_zone": "本地（自动换算）",
 }
+
+TZ_CHOICES = {"本地（自动换算）": "local", "UTC（不换算）": "UTC"}
 
 STATION_CHOICES = {"自动识别": None, "NEDAP": "nedap", "FIRE": "fire"}
 
@@ -116,6 +118,7 @@ class App:
         self.v_drop = tk.StringVar(value=str(s["max_feed_drop_pct"]))
         self.v_station = tk.StringVar(value=s["station"])
         self.v_format = tk.StringVar(value=s["format"])
+        self.v_tz = tk.StringVar(value=s.get("time_zone", DEFAULTS["time_zone"]))
         fields = [
             ("监控天数", self.v_days, "天"), ("栋号位数", self.v_house, "测定站编号前几位是栋号"),
             ("低采食阈值", self.v_low, "kg/天"), ("未识别报警", self.v_unid, "%"),
@@ -129,6 +132,9 @@ class App:
         ttk.Label(f_set, text="测定站类型").grid(row=2, column=3, sticky="w", **pad)
         ttk.Combobox(f_set, textvariable=self.v_station, values=list(STATION_CHOICES), width=8,
                      state="readonly").grid(row=2, column=4, sticky="w", **pad)
+        ttk.Label(f_set, text="带时区的时间").grid(row=3, column=3, sticky="w", **pad)
+        ttk.Combobox(f_set, textvariable=self.v_tz, values=list(TZ_CHOICES), width=16,
+                     state="readonly").grid(row=3, column=4, columnspan=2, sticky="w", **pad)
         ttk.Label(f_set, text="表格格式").grid(row=3, column=0, sticky="w", **pad)
         fm = ttk.Frame(f_set)
         fm.grid(row=3, column=1, columnspan=2, sticky="w")
@@ -212,6 +218,7 @@ class App:
                 "low_feed_kg": float(self.v_low.get()), "max_unidentified_pct": float(self.v_unid.get()),
                 "max_feed_drop_pct": float(self.v_drop.get()), "station": self.v_station.get(),
                 "format": self.v_format.get(), "time": self.v_time.get().strip(),
+                "time_zone": self.v_tz.get(),
             }
         except ValueError as e:
             raise Abort("天数、栋号位数和各阈值必须是数字。") from e
@@ -225,7 +232,8 @@ class App:
     def _monitor_args(s: dict) -> dict:
         return dict(days=s["days"], house_width=s["house_width"], low_feed_kg=s["low_feed_kg"],
                     max_unidentified_pct=s["max_unidentified_pct"], max_feed_drop_pct=s["max_feed_drop_pct"],
-                    station=STATION_CHOICES.get(s["station"]))
+                    station=STATION_CHOICES.get(s["station"]),
+                    time_zone=TZ_CHOICES.get(s["time_zone"], "local"))
 
     def _error(self, text: str) -> None:
         from tkinter import messagebox
