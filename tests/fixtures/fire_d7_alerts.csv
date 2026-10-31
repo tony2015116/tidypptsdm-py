@@ -1,0 +1,8 @@
+level,type,location,responder,value,message
+warning,feed_drop,101,,24.66,"Feed intake 24.7 kg, 46% below the mean of the earlier days (45.7 kg)"
+warning,feed_drop,102,,19.167,"Feed intake 19.2 kg, 65% below the mean of the earlier days (54.9 kg)"
+warning,pig_low_feed,102,35857,-0.012,Ate -0.01 kg (below 0.5 kg); 1 low-feed day in the window
+warning,pig_low_feed,102,35860,0.006,Ate 0.01 kg (below 0.5 kg); 1 low-feed day in the window
+warning,pig_low_feed,102,35861,0.096,Ate 0.10 kg (below 0.5 kg); 1 low-feed day in the window
+warning,pig_low_feed,102,35882,0.3,Ate 0.30 kg (below 0.5 kg); 1 low-feed day in the window
+warning,pig_low_feed,102,35883,0.004,Ate 0.00 kg (below 0.5 kg); 1 low-feed day in the window

@@ -1,0 +1,82 @@
+site_name: tidypptsdm
+site_description: 种猪性能测定站日常监控（Python 版）
+site_url: https://tony2015116.github.io/tidypptsdm-py/
+repo_url: https://github.com/tony2015116/tidypptsdm-py
+repo_name: tony2015116/tidypptsdm-py
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Meng Guo · MIT License
+
+theme:
+  name: material
+  language: zh
+  logo: assets/logo.svg
+  favicon: assets/favicon.ico
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle: { icon: material/brightness-7, name: 深色模式 }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: blue
+      toggle: { icon: material/brightness-4, name: 浅色模式 }
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.highlight
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      lang: [zh, en]
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            docstring_options:
+              warn_missing_types: false
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed: { alternate_style: true }
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+
+nav:
+  - 首页: index.md
+  - 入门:
+      - 快速入门: quickstart.md
+      - 桌面程序: app.md
+      - 命令行: cli.md
+  - 结果:
+      - 表格与警报: output.md
+      - 图与报告: plots.md
+  - 运行:
+      - 每天定时运行: schedule.md
+      - 读取数据: data.md
+  - 函数参考: reference.md
+  - 关于:
+      - 与 R 版的关系: r.md
+      - 开发与发布: develop.md
+      - 更新日志: changelog.md

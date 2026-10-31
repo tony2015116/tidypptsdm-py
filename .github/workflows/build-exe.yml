@@ -1,0 +1,46 @@
+name: build-exe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[exe]"
+      - run: pyinstaller --noconfirm packaging/tidypptsdm.spec
+      - name: Smoke test (the windowed exe writes its messages to a log file)
+        shell: pwsh
+        run: |
+          $exe = "dist/tidypptsdm/tidypptsdm.exe"
+          Start-Process -Wait -FilePath $exe -ArgumentList "example", "smoke/ex"
+          Start-Process -Wait -FilePath $exe -ArgumentList "run", "smoke/ex", "--out", "smoke/out", "--days", "7"
+          Get-Content smoke/out/tidypptsdm.log
+          if (-not (Test-Path smoke/out/2024-05-25/index.html)) { throw "no report" }
+          if (-not (Test-Path smoke/out/2024-05-25/monitor.xlsx)) { throw "no workbook" }
+      - name: Zip
+        shell: pwsh
+        run: |
+          Copy-Item README.md, LICENSE dist/tidypptsdm/
+          Compress-Archive -Path dist/tidypptsdm -DestinationPath tidypptsdm-windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tidypptsdm-windows
+          path: tidypptsdm-windows.zip
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" tidypptsdm-windows.zip --clobber

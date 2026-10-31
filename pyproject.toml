@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tidypptsdm"
+dynamic = ["version"]
+description = "Daily monitoring of pig performance testing stations (NEDAP and FIRE)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Meng Guo", email = "tony2015116@163.com" }]
+requires-python = ">=3.10"
+keywords = ["pig", "performance test", "feeding station", "NEDAP", "FIRE", "livestock", "monitoring"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Natural Language :: Chinese (Simplified)",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+  "pandas>=2.0",
+  "numpy>=1.24",
+  "matplotlib>=3.7",
+  "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
+exe = ["pyinstaller>=6.0"]
+
+[project.scripts]
+tidypptsdm = "tidypptsdm.cli:main"
+
+[project.gui-scripts]
+tidypptsdm-gui = "tidypptsdm.gui:main"
+
+[project.urls]
+Homepage = "https://tony2015116.github.io/tidypptsdm-py/"
+Source = "https://github.com/tony2015116/tidypptsdm-py"
+Issues = "https://github.com/tony2015116/tidypptsdm-py/issues"
+"R package" = "https://github.com/tony2015116/tidypptsdm"
+
+[tool.hatch.version]
+path = "src/tidypptsdm/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tidypptsdm"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::FutureWarning"]
