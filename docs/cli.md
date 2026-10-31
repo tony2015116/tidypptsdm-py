@@ -32,6 +32,7 @@ tidypptsdm run D:/nedap/exports --out D:/nedap/monitor --days 7 --open
 
 ```bash
 tidypptsdm schedule D:/nedap/exports --out D:/nedap/monitor --time 07:30 --days 7
+tidypptsdm status --out D:/nedap/monitor     # 上次/下次运行时间、结果和日志
 tidypptsdm unschedule
 ```
 

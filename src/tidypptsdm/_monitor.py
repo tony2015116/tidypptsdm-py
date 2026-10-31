@@ -646,9 +646,26 @@ def run_monitor(data, days: int = 7, end_date=None, house_width: int = 1,
             station=st_type, days=win.days, start_date=win.start, end_date=win.end,
             house_width=house_width, low_feed_kg=low_feed_kg,
             max_unidentified_pct=max_unidentified_pct, max_feed_drop_pct=max_feed_drop_pct,
-            iqr_k=iqr_k, created=pd.Timestamp.now()))
+            iqr_k=iqr_k, created=pd.Timestamp.now(),
+            data_last_date=v["date"].max(), stale_note=_stale_note(v, end_date)))
+        if mon.settings["stale_note"]:
+            msg(mon.settings["stale_note"], "warning")
         mon.print_summary()
         return mon
+
+
+def _stale_note(v: pd.DataFrame, end_date) -> str:
+    """A note when the data stop before yesterday (old data, or the exports
+    stopped). Empty when the data are up to date or a past end_date was asked."""
+    if end_date is not None or len(v) == 0:
+        return ""
+    last = v["date"].max()
+    today = pd.Timestamp(_dt.date.today())
+    behind = (today - last).days
+    if behind <= 1:
+        return ""
+    return (f"The latest data are from {_fmt_date(last)}, {behind} days ago, so the report covers the "
+            "last days of the data. For the daily monitor: are the station exports up to date?")
 
 
 def monitor_stations(data, days: int = 7, end_date=None, iqr_k: float = 1.5,

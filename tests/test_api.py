@@ -211,3 +211,16 @@ def test_iso_times_with_time_zone(tmp_path):
     assert (d2["entry_time"].sort_values().to_numpy() == local.sort_values().to_numpy()).all()
     with pytest.raises(tp.Abort, match="time zone"):
         tp.read_station(tmp_path / "iso.csv", time_zone="Mars/Base", verbose=0)
+
+
+def test_old_data_note(tmp_path):
+    # the example data end in 2024: the report still covers their last days
+    mon = tp.run_monitor(tp.load_example("nedap"), days=7, verbose=0)
+    assert mon.settings["end_date"] == pd.Timestamp("2024-05-25")
+    assert "days ago" in mon.settings["stale_note"]
+    html = tp.write_monitor_report(mon, tmp_path, verbose=0).read_text(encoding="utf-8")
+    assert "old data" in html
+    # a past end date asked on purpose gives no note
+    past = tp.run_monitor(tp.load_example("nedap"), days=7, end_date="2024-04-01", verbose=0)
+    assert past.settings["stale_note"] == ""
+    assert past.stations["date"].max() == pd.Timestamp("2024-04-01")

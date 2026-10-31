@@ -175,8 +175,11 @@ def _monitor_html(mon: Monitor, locs: list[str], files: dict, title: str) -> str
          f'<td class="n">{_num(r["weight_kg"], 1)}</td></tr>' for _, r in hl.iterrows()])
     d_end = _fmt_date(end)
     alert_count = f' <span class="count">{len(a)}</span>' if len(a) else ""
+    note = s.get("stale_note") or ""
+    stale = (f'<p class="lead"><span class="tag s-warning">old data</span> <span class="warn">'
+             f'{_esc(note)}</span></p>') if note else ""
     overview = ('<section class="page" id="p-0" data-title="Overview">'
-                f'<h1>Overview</h1><p class="lead">Last day: {d_end}</p>{cards}'
+                f'<h1>Overview</h1><p class="lead">Last day: {d_end}</p>{stale}{cards}'
                 f"<h2>Alerts{alert_count}</h2>"
                 + _alerts_html(a, page_of)
                 + f"<h2>Stations on {d_end}</h2>" + _table(STATION_HEAD, _station_rows(last, page_of, n_alerts))

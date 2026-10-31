@@ -17,10 +17,15 @@ from ._version import __version__
 
 SETTINGS_FILE = Path.home() / ".tidypptsdm.json"
 
+
+def pd_today():
+    import pandas as pd
+    return pd.Timestamp.today().normalize()
+
 DEFAULTS = {
     "data": "", "out": "", "days": 7, "house_width": 1, "low_feed_kg": 0.5,
     "max_unidentified_pct": 5.0, "max_feed_drop_pct": 30.0, "station": "自动识别",
-    "format": "xlsx", "time": "07:30", "time_zone": "本地（自动换算）",
+    "format": "xlsx", "time": "07:30", "time_zone": "本地（自动换算）", "end_date": "",
 }
 
 TZ_CHOICES = {"本地（自动换算）": "local", "UTC（不换算）": "UTC"}
@@ -119,6 +124,7 @@ class App:
         self.v_station = tk.StringVar(value=s["station"])
         self.v_format = tk.StringVar(value=s["format"])
         self.v_tz = tk.StringVar(value=s.get("time_zone", DEFAULTS["time_zone"]))
+        self.v_end = tk.StringVar(value=s.get("end_date", ""))
         fields = [
             ("监控天数", self.v_days, "天"), ("栋号位数", self.v_house, "测定站编号前几位是栋号"),
             ("低采食阈值", self.v_low, "kg/天"), ("未识别报警", self.v_unid, "%"),
@@ -135,6 +141,10 @@ class App:
         ttk.Label(f_set, text="带时区的时间").grid(row=3, column=3, sticky="w", **pad)
         ttk.Combobox(f_set, textvariable=self.v_tz, values=list(TZ_CHOICES), width=16,
                      state="readonly").grid(row=3, column=4, columnspan=2, sticky="w", **pad)
+        ttk.Label(f_set, text="截止日期").grid(row=4, column=0, sticky="w", **pad)
+        ttk.Entry(f_set, textvariable=self.v_end, width=12).grid(row=4, column=1, sticky="w", **pad)
+        ttk.Label(f_set, text="留空 = 数据的最后一天；回看历史时填，如 2025-01-10",
+                  foreground="#667085").grid(row=4, column=2, columnspan=4, sticky="w", **pad)
         ttk.Label(f_set, text="表格格式").grid(row=3, column=0, sticky="w", **pad)
         fm = ttk.Frame(f_set)
         fm.grid(row=3, column=1, columnspan=2, sticky="w")
@@ -219,7 +229,7 @@ class App:
                 "low_feed_kg": float(self.v_low.get()), "max_unidentified_pct": float(self.v_unid.get()),
                 "max_feed_drop_pct": float(self.v_drop.get()), "station": self.v_station.get(),
                 "format": self.v_format.get(), "time": self.v_time.get().strip(),
-                "time_zone": self.v_tz.get(),
+                "time_zone": self.v_tz.get(), "end_date": self.v_end.get().strip(),
             }
         except ValueError as e:
             raise Abort("天数、栋号位数和各阈值必须是数字。") from e
@@ -227,6 +237,10 @@ class App:
             raise Abort("请选择导出文件夹。")
         if not s["out"]:
             raise Abort("请选择结果文件夹。")
+        if s["end_date"]:
+            import re as _re
+            if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s["end_date"]):
+                raise Abort("截止日期请写成 2025-01-10 这样的格式，或者留空。")
         return s
 
     @staticmethod
@@ -265,8 +279,14 @@ class App:
         old = sys.stderr
         sys.stderr = _QueueWriter(self.q)
         try:
-            res = monitor_to_folder(s["data"], s["out"], format=s["format"], **self._monitor_args(s))
+            res = monitor_to_folder(s["data"], s["out"], format=s["format"],
+                                    end_date=s["end_date"] or None, **self._monitor_args(s))
             a = res["monitor"].alerts
+            st = res["monitor"].settings
+            if st.get("stale_note"):
+                behind = (pd_today() - st["data_last_date"]).days
+                self.q.put(f"! 注意：最新数据是 {behind} 天前（{st['data_last_date']:%Y-%m-%d}）的。"
+                           "如果是每天的监控，请检查测定站的导出文件是否更新。\n")
             self.q.put((True, res["report"], res["folder"], len(a), int((a["level"] == "danger").sum())))
         except Abort as e:
             self.q.put(f"x {e}\n")
