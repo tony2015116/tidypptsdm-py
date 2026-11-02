@@ -18,10 +18,6 @@ from ._version import __version__
 SETTINGS_FILE = Path.home() / ".tidypptsdm.json"
 
 
-def pd_today():
-    import pandas as pd
-    return pd.Timestamp.today().normalize()
-
 DEFAULTS = {
     "data": "", "out": "", "days": 7, "house_width": 1, "low_feed_kg": 0.5,
     "max_unidentified_pct": 5.0, "max_feed_drop_pct": 30.0, "station": "自动识别",
@@ -57,6 +53,22 @@ def open_path(p: Path) -> None:
         subprocess.Popen(["open", str(p)])
     else:
         subprocess.Popen(["xdg-open", str(p)])
+
+
+class _QueueSink:
+    """Lines of a run (see _zh.run_zh) for the log box, through the queue."""
+
+    def __init__(self, q: queue.Queue):
+        self.q = q
+
+    def line(self, text: str, tag: str | None = None) -> None:
+        self.q.put(("line", text, tag))
+
+    def progress(self, text: str, fraction: float) -> None:
+        self.q.put(("progress", text, fraction))
+
+    def detail(self, text: str) -> None:
+        pass  # only in the log file
 
 
 class _QueueWriter:
@@ -184,8 +196,19 @@ class App:
         self.log.tag_configure("bad", foreground="#B42318")
         self.log.tag_configure("ok", foreground="#1A7F4B")
         self.log.tag_configure("head", font=("TkDefaultFont", 9, "bold"))
+        self.log.tag_configure("step", foreground="#344054")
+        self.log.tag_configure("prog", foreground="#667085")
+        self.log.mark_set("prog", "end")
+        self.log.mark_gravity("prog", "left")
+        self.in_progress = False
+        f_st = ttk.Frame(main)
+        f_st.pack(fill="x", pady=(6, 0))
+        ttk.Style().configure("Run.Horizontal.TProgressbar", background="#1A7F4B")  # Windows: native green
+        self.bar = ttk.Progressbar(f_st, mode="determinate", maximum=1.0, length=160,
+                                   style="Run.Horizontal.TProgressbar")
+        self.bar.pack(side="right")
         self.status = tk.StringVar(value="选择导出文件夹和结果文件夹，然后点“运行监控”。")
-        ttk.Label(main, textvariable=self.status, foreground="#667085").pack(fill="x", pady=(6, 0))
+        ttk.Label(f_st, textvariable=self.status, foreground="#667085").pack(side="left", fill="x")
         root.after(100, self._poll)
 
     # ---- helpers
@@ -195,12 +218,37 @@ class App:
         if d:
             var.set(d)
 
+    def _drop_progress(self) -> None:
+        if self.in_progress:
+            self.log.delete("prog", "end-1c")
+            self.in_progress = False
+
+    def _line(self, text: str, tag: str | None) -> None:
+        self.log.configure(state="normal")
+        self._drop_progress()
+        self.log.insert("end", text + "\n", tag)
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
+    def _progress(self, text: str, fraction: float) -> None:
+        self.bar["value"] = fraction
+        self.log.configure(state="normal")
+        self._drop_progress()
+        if text:
+            self.log.mark_set("prog", "end-1c")
+            self.log.insert("end", text, "prog")
+            self.in_progress = True
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
     def _append(self, text: str) -> None:
         self.log.configure(state="normal")
+        self._drop_progress()
         for line in text.splitlines(keepends=True):
             s = line.lstrip()
-            tag = ("bad" if s.startswith("x ") else "warn" if s.startswith("! ")
-                   else "ok" if s.startswith("v ") else "head" if s.startswith("-- ") else None)
+            tag = ("bad" if s.startswith(("x ", "✗")) else "warn" if s.startswith(("! ", "⚠"))
+                   else "ok" if s.startswith(("v ", "✓")) else "head" if s.startswith(("-- ", "━━"))
+                   else None)
             self.log.insert("end", line, tag)
         self.log.see("end")
         self.log.configure(state="disabled")
@@ -209,8 +257,12 @@ class App:
         try:
             while True:
                 item = self.q.get_nowait()
-                if isinstance(item, tuple):
-                    self._done(*item)
+                if isinstance(item, tuple) and item[0] == "line":
+                    self._line(item[1], item[2])
+                elif isinstance(item, tuple) and item[0] == "progress":
+                    self._progress(item[1], item[2])
+                elif isinstance(item, tuple):
+                    self._done(*item[1:])
                 else:
                     self._append(item)
         except queue.Empty:
@@ -267,45 +319,46 @@ class App:
         self.busy = True
         self.b_run.configure(state="disabled")
         self.status.set("正在运行…")
+        self.bar["value"] = 0
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
+        self.in_progress = False
         self.log.configure(state="disabled")
         threading.Thread(target=self._work, args=(s,), daemon=True).start()
 
     def _work(self, s: dict) -> None:
-        from ._messages import Abort
-        from ._schedule import monitor_to_folder
-        old = sys.stderr
-        sys.stderr = _QueueWriter(self.q)
+        from ._zh import FileSink, TeeSink, open_log, run_zh
+        log = open_log(s["out"])  # manual runs are kept in the log too
+        sink = TeeSink(_QueueSink(self.q), FileSink(log) if log else None)
+        res = None
         try:
-            res = monitor_to_folder(s["data"], s["out"], format=s["format"],
-                                    end_date=s["end_date"] or None, **self._monitor_args(s))
-            a = res["monitor"].alerts
-            st = res["monitor"].settings
-            if st.get("stale_note"):
-                behind = (pd_today() - st["data_last_date"]).days
-                self.q.put(f"! 注意：最新数据是 {behind} 天前（{st['data_last_date']:%Y-%m-%d}）的。"
-                           "如果是每天的监控，请检查测定站的导出文件是否更新。\n")
-            self.q.put((True, res["report"], res["folder"], len(a), int((a["level"] == "danger").sum())))
-        except Abort as e:
-            self.q.put(f"x {e}\n")
-            self.q.put((False, None, None, 0, 0))
-        except Exception:  # noqa: BLE001 - show anything in the log
-            self.q.put("x " + traceback.format_exc())
-            self.q.put((False, None, None, 0, 0))
+            res = run_zh(s["data"], s["out"], sink, format=s["format"],
+                         end_date=s["end_date"] or None, **self._monitor_args(s))
+        except Exception:  # noqa: BLE001 - never leave the app hanging
+            sink.line("✗ 程序出错，详细信息已写入结果文件夹里的 tidypptsdm.log。", "bad")
+            sink.detail(traceback.format_exc())
         finally:
-            sys.stderr = old
+            if log:
+                log.write("\n")
+                log.close()
+        if res is None:
+            self.q.put(("done", False, None, None, 0, 0))
+        else:
+            a = res["monitor"].alerts
+            self.q.put(("done", True, res["report"], res["folder"], len(a),
+                        int((a["level"] == "danger").sum())))
 
     def _done(self, ok: bool, report, folder, n_alerts: int, n_danger: int) -> None:
         self.busy = False
         self.b_run.configure(state="normal")
         if not ok:
-            self.status.set("没有完成，原因见运行信息。")
+            self.bar["value"] = 0
+            self.status.set("没有完成，原因和处理办法见运行信息。")
             return
         self.last_report, self.last_folder = Path(report), Path(folder)
         self.b_report.configure(state="normal")
         self.b_folder.configure(state="normal")
-        self.status.set(f"完成：{n_alerts} 条警报（{n_danger} 条严重）。报告在 {folder}")
+        self.status.set(f"完成：{n_alerts} 条警报（{n_danger} 条严重）。报告已在浏览器中打开。")
         self.open_report()
 
     def open_report(self) -> None:
@@ -355,7 +408,7 @@ class App:
     def task_status(self) -> None:
         from ._schedule import task_status
         text = task_status(out_dir=self.v_out.get().strip() or None)
-        self._append("\n-- 定时任务状态 --\n" + text + "\n")
+        self._append("\n━━ 定时任务状态 ━━\n" + text + "\n")
         self.status.set("“上次结果”为 0 表示成功；日志的最后几行见运行信息。")
 
     def task_run_now(self) -> None:
@@ -370,7 +423,7 @@ class App:
             return
         messagebox.showinfo("tidypptsdm", "已在后台启动定时任务（不会弹出窗口）。\n\n"
                             "数据多时需要一两分钟；完成后点“查看定时状态”，"
-                            "日志最后应有 “Report … written to …”。")
+                            "日志最后应有“结论”和“共用时 … 报告：…”。")
 
     def unschedule(self) -> None:
         from tkinter import messagebox

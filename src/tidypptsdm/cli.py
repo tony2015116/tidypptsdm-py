@@ -81,21 +81,21 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _ensure_streams(a: argparse.Namespace) -> None:
+def _ensure_streams(a: argparse.Namespace) -> bool:
     """The windowed exe has no console: write the messages to a log file in
-    the result folder (scheduled runs) instead of losing them."""
+    the result folder (scheduled runs) instead of losing them. True when the
+    messages go to the log file."""
     if sys.stdout is not None and sys.stderr is not None:
-        return
-    folder = Path(getattr(a, "out", None) or Path.home())
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-        log = open(folder / "tidypptsdm.log", "a", encoding="utf-8")  # noqa: SIM115
-    except OSError:
-        return
+        return False
+    from ._zh import open_log
+    log = open_log(getattr(a, "out", None) or Path.home())
+    if log is None:
+        return False
     if sys.stdout is None:
         sys.stdout = log
     if sys.stderr is None:
         sys.stderr = log
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,14 +105,25 @@ def main(argv: list[str] | None = None) -> int:
         gui_main()
         return 0
     a = build_parser().parse_args(argv)
-    _ensure_streams(a)
+    to_log = _ensure_streams(a)
     try:
+        if a.command == "run" and to_log:
+            # the desktop app's scheduled task: the run in Chinese, as in the app
+            from ._zh import FileSink, run_zh
+            res = run_zh(a.data, a.out, FileSink(sys.stderr), format=a.format, workers=a.workers,
+                         **_monitor_kwargs(a))
+            sys.stderr.write("\n")
+            if res is None:
+                return 1
+            return 2 if (res["monitor"].alerts["level"] == "danger").any() else 0
         if a.command == "run":
             import datetime
 
             from ._messages import msg
             from ._schedule import monitor_to_folder
-            msg(f"tidypptsdm {__version__}: run started {datetime.datetime.now():%Y-%m-%d %H:%M:%S}", "h1")
+            if not a.quiet:
+                msg(f"tidypptsdm {__version__}: run started {datetime.datetime.now():%Y-%m-%d %H:%M:%S}",
+                    "h1")
             res = monitor_to_folder(a.data, a.out, format=a.format, open=a.open,
                                     workers=a.workers, verbose=0 if a.quiet else 1, **_monitor_kwargs(a))
             n_danger = int((res["monitor"].alerts["level"] == "danger").sum())

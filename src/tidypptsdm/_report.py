@@ -329,7 +329,7 @@ def _monitor_html(mon: Monitor, locs: list[str], files: dict, title: str) -> str
 
 def write_monitor_report(mon: Monitor, path, title: str | None = None, locations=None,
                          dpi: int = 150, open: bool = False, workers: int | None = None,
-                         verbose: int = 1) -> Path:
+                         progress=None, verbose: int = 1) -> Path:
     """Write an HTML report to browse station by station.
 
     Writes ``index.html`` and the plots (``img/``) into ``path``. Open
@@ -350,6 +350,8 @@ def write_monitor_report(mon: Monitor, path, title: str | None = None, locations
         workers: Number of processes that draw the plots at the same time.
             Default ``None``: one per CPU core (at most 8) when there are 6
             stations or more, otherwise 1. ``1`` draws one station at a time.
+        progress: A function called as ``progress(done, total)`` after the
+            plots of each station (e.g. for a progress bar).
         verbose: 0 (silent) or 1.
 
     Returns:
@@ -368,14 +370,16 @@ def write_monitor_report(mon: Monitor, path, title: str | None = None, locations
         step = max(1, len(locs) // 10)
         shown = [0]
 
-        def progress(n: int) -> None:
+        def show(n: int) -> None:
+            if progress is not None:
+                progress(n, len(locs))
             if len(locs) > 10 and (n - shown[0] >= step or n == len(locs)):
                 shown[0] = n
                 msg(f"Plots: {n} of {len(locs)} stations", "info")
 
         if n_workers > 1 and len(locs) > 10:
             msg(f"Drawing the plots on {n_workers} cores", "info")
-        rows = _draw_all(mon, locs, img, dpi, n_workers, progress)
+        rows = _draw_all(mon, locs, img, dpi, n_workers, show)
         files = {(l, t): f for l, t, f, ok in rows if ok}
         n_bad = sum(not ok for *_, ok in rows)
         if n_bad:

@@ -373,16 +373,20 @@ def _parse_time(cols: pd.DataFrame, unit: str, field: str, source: str,
     else:
         out = None
         first = txt[present]
+        # the format that reads most of the first values (a few broken values
+        # must not hide the format: they are reported below, the rest is read)
+        sample = first.head(200)
+        best, best_ok = None, 0.0
         for fmt in TIME_FORMATS:
-            cand = pd.to_datetime(first.head(50), format=fmt, errors="coerce")
-            if cand.notna().all():
-                out = pd.to_datetime(txt, format=fmt, errors="coerce")
-                break
+            ok = pd.to_datetime(sample, format=fmt, errors="coerce").notna().mean() if len(sample) else 0.0
+            if ok > best_ok:
+                best, best_ok = fmt, ok
+        if best is not None and best_ok >= 0.9:
+            out = pd.to_datetime(txt, format=best, errors="coerce")
         if out is None and len(first):
             # ISO 8601: 2025-01-24T00:34:17Z, 2025-01-24T08:34:17+08:00, ...
-            sample = first.head(50)
-            if sample.str.contains("T").all() or sample.str.contains(_TZ_MARK).all():
-                aware = sample.str.contains(_TZ_MARK).all()
+            if sample.str.contains("T").mean() >= 0.9 or sample.str.contains(_TZ_MARK).mean() >= 0.9:
+                aware = sample.str.contains(_TZ_MARK).mean() >= 0.9
                 try:
                     out = pd.to_datetime(txt, format="ISO8601", errors="coerce", utc=aware)
                 except (ValueError, TypeError):
@@ -394,7 +398,8 @@ def _parse_time(cols: pd.DataFrame, unit: str, field: str, source: str,
     bad = present & out.isna()
     if bad.any():
         ex = list(txt[bad].head(2))
-        raise Abort(f"Field '{field}' in {source}: cannot read {int(bad.sum())} value(s) as time, "
+        col = " + ".join(f"'{c}'" for c in cols.columns)
+        raise Abort(f"Field '{field}' (column {col}) in {source}: cannot read {int(bad.sum())} value(s) as time, "
                     f"e.g. {ex}. Give the time format as unit in the station format, "
                     "e.g. '%d/%m/%Y %H:%M:%S'.")
     return out.astype("datetime64[ns]")

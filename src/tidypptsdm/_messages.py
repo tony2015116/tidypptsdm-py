@@ -10,7 +10,7 @@ import contextlib
 import sys
 from typing import Iterator
 
-_state = {"verbose": 1}
+_state: dict = {"verbose": 1, "sink": None}
 
 _SYMBOLS = {
     "info": "i",
@@ -58,8 +58,25 @@ def _write(text: str) -> None:
     stream.flush()
 
 
+@contextlib.contextmanager
+def capture() -> Iterator[list[tuple[str, str]]]:
+    """Collect the summary messages ``(kind, text)`` instead of printing
+    them (used by the desktop app, which writes its own messages)."""
+    old = _state["sink"]
+    sink: list[tuple[str, str]] = []
+    _state["sink"] = sink
+    try:
+        yield sink
+    finally:
+        _state["sink"] = old
+
+
 def msg(text: str, kind: str = "info", level: int = 1) -> None:
     """Print a message if the verbosity is at least `level`."""
+    if _state["sink"] is not None:
+        if level <= 1 and kind != "h1":
+            _state["sink"].append((kind, text))
+        return
     if _state["verbose"] < level:
         return
     if kind == "h1":
@@ -71,6 +88,8 @@ def msg(text: str, kind: str = "info", level: int = 1) -> None:
 
 def bullets(lines: list[tuple[str, str]], level: int = 1) -> None:
     """Print indented lines, each with a kind ("danger", "warning", ...)."""
+    if _state["sink"] is not None:
+        return
     if _state["verbose"] < level:
         return
     for kind, text in lines:

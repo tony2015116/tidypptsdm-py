@@ -43,7 +43,14 @@ jobs:
           $exe = "dist/tidypptsdm/tidypptsdm.exe"
           Start-Process -Wait -FilePath $exe -ArgumentList "example", "smoke/ex"
           Start-Process -Wait -FilePath $exe -ArgumentList "run", "smoke/ex", "--out", "smoke/out", "--days", "7"
-          Get-Content smoke/out/tidypptsdm.log
+          Get-Content smoke/out/tidypptsdm.log -Encoding utf8
+          if (-not (Select-String -Path smoke/out/tidypptsdm.log -Encoding utf8 -Pattern "共用时" -Quiet)) { throw "no Chinese run log" }
+          # an error: the log says what to do, in Chinese
+          New-Item -ItemType Directory -Force smoke/empty | Out-Null
+          $p = Start-Process -Wait -PassThru -FilePath $exe -ArgumentList "run", "smoke/empty", "--out", "smoke/outerr"
+          Get-Content smoke/outerr/tidypptsdm.log -Encoding utf8 | ForEach-Object { Write-Output "::notice title=error-log::$_" }
+          if ($p.ExitCode -ne 1) { throw "an error must end with exit code 1" }
+          if (-not (Select-String -Path smoke/outerr/tidypptsdm.log -Encoding utf8 -Pattern "怎么办" -Quiet)) { throw "no advice in the log" }
           if (-not (Test-Path smoke/out/2024-05-25/index.html)) { throw "no report" }
           if (-not (Test-Path smoke/out/2024-05-25/monitor.xlsx)) { throw "no workbook" }
       - name: Plots on several cores in the exe (same files, faster)
@@ -53,7 +60,7 @@ jobs:
           $exe = "dist/tidypptsdm/tidypptsdm.exe"
           $t1 = Measure-Command { Start-Process -Wait -FilePath $exe -ArgumentList "run", "smoke/many", "--out", "par/one", "--workers", "1" }
           $tn = Measure-Command { Start-Process -Wait -FilePath $exe -ArgumentList "run", "smoke/many", "--out", "par/auto" }
-          Get-Content par/auto/tidypptsdm.log | Select-String "cores|failed|written" | ForEach-Object { Write-Output "::notice title=parallel-log::$_" }
+          Get-Content par/auto/tidypptsdm.log -Encoding utf8 | Select-String "核同时画|多核作图失败|共用时|没有完成" | ForEach-Object { Write-Output "::notice title=parallel-log::$_" }
           Write-Output "::notice title=parallel::cores=$([Environment]::ProcessorCount) one=$([int]$t1.TotalSeconds)s auto=$([int]$tn.TotalSeconds)s"
           $d1 = Get-ChildItem par/one -Directory | Select-Object -First 1
           $dn = Get-ChildItem par/auto -Directory | Select-Object -First 1
@@ -61,8 +68,8 @@ jobs:
           $hn = Get-ChildItem "$($dn.FullName)/img" | ForEach-Object { "$($_.Name) $((Get-FileHash $_.FullName -Algorithm MD5).Hash)" }
           if ($h1.Count -ne 48) { Write-Output "::error title=parallel::expected 48 plots, got $($h1.Count)"; exit 1 }
           if (Compare-Object $h1 $hn) { Write-Output "::error title=parallel::plots differ"; exit 1 }
-          if (-not (Select-String -Path par/auto/tidypptsdm.log -Pattern "cores" -Quiet)) { Write-Output "::error title=parallel::did not draw on several cores"; exit 1 }
-          if (Select-String -Path par/auto/tidypptsdm.log -Pattern "failed" -Quiet) { Write-Output "::error title=parallel::fell back to one core"; exit 1 }
+          if (-not (Select-String -Path par/auto/tidypptsdm.log -Encoding utf8 -Pattern "核同时画" -Quiet)) { Write-Output "::error title=parallel::did not draw on several cores"; exit 1 }
+          if (Select-String -Path par/auto/tidypptsdm.log -Encoding utf8 -Pattern "多核作图失败" -Quiet) { Write-Output "::error title=parallel::fell back to one core"; exit 1 }
       - name: Scheduled task really runs the exe (register, run now, check, remove)
         shell: pwsh
         run: |
@@ -79,11 +86,11 @@ jobs:
           for ($i = 0; $i -lt 60; $i++) { Start-Sleep 5; if (Get-ChildItem "$out/*/index.html" -ErrorAction SilentlyContinue) { $ok = $true; break } }
           $info = Get-ScheduledTaskInfo -TaskName tidypptsdm_monitor
           Write-Output "::notice title=task::last run $($info.LastRunTime) result $($info.LastTaskResult) report=$ok"
-          Get-Content "$out/tidypptsdm.log" -ErrorAction SilentlyContinue | Select-Object -Last 6 | ForEach-Object { Write-Output "::notice title=task-log::$_" }
+          Get-Content "$out/tidypptsdm.log" -Encoding utf8 -ErrorAction SilentlyContinue | Select-Object -Last 12 | ForEach-Object { Write-Output "::notice title=task-log::$_" }
           Unregister-ScheduledTask -TaskName tidypptsdm_monitor -Confirm:$false
           if (-not $ok) { Write-Output "::error title=task::the scheduled run wrote no report"; exit 1 }
-          if (-not (Select-String -Path "$out/tidypptsdm.log" -Pattern "cores" -Quiet)) { Write-Output "::error title=task::the scheduled run did not draw on several cores"; exit 1 }
-          if (Select-String -Path "$out/tidypptsdm.log" -Pattern "failed" -Quiet) { Write-Output "::error title=task::the scheduled run fell back to one core"; exit 1 }
+          if (-not (Select-String -Path "$out/tidypptsdm.log" -Encoding utf8 -Pattern "核同时画" -Quiet)) { Write-Output "::error title=task::the scheduled run did not draw on several cores"; exit 1 }
+          if (Select-String -Path "$out/tidypptsdm.log" -Encoding utf8 -Pattern "多核作图失败" -Quiet) { Write-Output "::error title=task::the scheduled run fell back to one core"; exit 1 }
       - name: Zip
         shell: pwsh
         run: |
