@@ -31,14 +31,14 @@ def test_run_in_five_steps_with_a_conclusion(exports, tmp_path):
     assert all(text.isascii() is False for text, _ in sink.lines[:1])  # Chinese
 
 
-def test_stale_data_and_alerts_in_the_conclusion(nedap_like):
-    mon = nedap_like
-    lines = _zh._conclusion(mon)
+def test_conclusion_lists_danger_alerts(nedap_like):
+    from tidypptsdm._watch import watch
+    w = watch(nedap_like)
+    lines = _zh._conclusion(nedap_like, w)
     text = "\n".join(t for t, _ in lines)
-    assert "✗ 严重" in text and "测定站 102：全天没有访问" in text
-    assert "天没有访问" in text and "最新数据是" in text
-    assert [t for t, tag in lines if t.startswith("✗")][0] and \
-        all(tag == "bad" for t, tag in lines if t.startswith("   · "))
+    assert "✗ 严重" in text and "【新】测定站 102：全天没有访问" in text and "已 2 天没有访问" in text
+    assert "最新数据是" in text
+    assert all(tag == "bad" for t, tag in lines if t.startswith("   · "))
 
 
 @pytest.fixture(scope="module")
@@ -52,10 +52,11 @@ def nedap_like():
 
 
 def test_many_danger_alerts_are_cut(nedap_like):
-    mon = nedap_like
-    a = pd.concat([mon.alerts] + [mon.alerts[mon.alerts["type"] == "pig_no_visit"]] * 12)
-    mon2 = tp.Monitor(**{**mon.__dict__, "alerts": a.reset_index(drop=True)})
-    lines = [t for t, _ in _zh._conclusion(mon2)]
+    from tidypptsdm._watch import watch
+    w = watch(nedap_like)
+    pig = w.alerts[w.alerts["type"] == "pig_no_visit"]
+    w.alerts = pd.concat([w.alerts] + [pig] * 12, ignore_index=True)
+    lines = [t for t, _ in _zh._conclusion(nedap_like, w)]
     listed = [t for t in lines if t.startswith("   · ")]
     assert len(listed) == _zh.MAX_LISTED + 1 and listed[-1].startswith("   · 另有")
 

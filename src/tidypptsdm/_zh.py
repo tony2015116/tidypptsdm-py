@@ -243,54 +243,62 @@ def note_zh(text: str) -> str | None:
 
 # ---- the run ------------------------------------------------------------------------------------
 
-def _conclusion(mon) -> list[tuple[str, str | None]]:
+def _conclusion(mon, w, looked_back: bool = False) -> list[tuple[str, str | None]]:
+    from ._watch import alert_text
     s = mon.settings
     end = s["end_date"]
-    a = mon.alerts
+    a = w.alerts
     last = mon.stations[mon.stations["date"] == end]
-    pigs_at = mon.pig_summary.groupby("location").size()
     out = [(f"{_date(end)}：{len(last)} 台测定站，{int(last['n_pigs'].sum()):,} 头猪来吃过料，"
             f"{_n(last['n_visits'].sum(), '次')}访问，采食 {float(last['feed_kg'].sum()):,.1f} kg", None)]
+    if w.end_note:
+        out.append((f"ℹ {w.end_note}", None))
     danger = a[a["level"] == "danger"]
     warning = a[a["level"] == "warning"]
-    if len(a) == 0:
+    absent = a[a["level"] == "absent"]
+    if len(danger) + len(warning) == 0:
         out.append(("✓ 没有警报", "ok"))
     if len(danger):
-        out.append((f"✗ 严重 {len(danger)} 条：", "bad"))
+        n_new = sum(int(r["days"]) <= 1 for _, r in danger.iterrows())
+        out.append((f"✗ 严重 {len(danger)} 条（新 {n_new} 条）：", "bad"))
         for _, r in danger.head(MAX_LISTED).iterrows():
-            if r["type"] == "station_down":
-                n = int(pigs_at.get(r["location"], 0))
-                t = f"测定站 {r['location']}：全天没有访问" + (f"（站上 {n} 头猪）" if n else "")
-            else:
-                t = f"猪 {r['responder']}（测定站 {r['location']}）：已 {int(r['value'])} 天没有访问"
-            out.append(("   · " + t, "bad"))
+            out.append(("   · " + alert_text(r), "bad"))
         if len(danger) > MAX_LISTED:
             out.append((f"   · 另有 {len(danger) - MAX_LISTED} 条，见报告首页", "bad"))
     if len(warning):
         parts = []
-        for typ, word in (("unidentified", "未识别过多"), ("feed_drop", "采食量下降")):
+        for typ, word in (("station_gap", "长时间没有记录"), ("unidentified", "未识别过多"),
+                          ("feed_drop", "头均采食下降")):
             x = warning.loc[warning["type"] == typ, "location"]
             if len(x):
                 parts.append(f"{word} {len(x)} 台（{_ids(x)}）")
-        n_low = int((warning["type"] == "pig_low_feed").sum())
-        if n_low:
-            parts.append(f"低采食 {n_low} 头")
-        out.append((f"⚠ 警告 {len(warning)} 条：" + "，".join(parts) + "。明细见报告", "warn"))
-    if s.get("stale_note"):
-        behind = (_dt.date.today() - s["data_last_date"].date()).days
-        out.append((f"⚠ 最新数据是 {behind} 天前（{_date(s['data_last_date'])}）的。"
+        for typ, word in (("pig_low_feed", "低采食"), ("pig_feed_drop", "采食骤降")):
+            n = int((warning["type"] == typ).sum())
+            if n:
+                parts.append(f"{word} {n} 头")
+        out.append((f"⚠ 警告 {len(warning)} 条：" + "，".join(parts) + "。明细见报告首页的“今日待办”", "warn"))
+    if len(absent):
+        out.append((f"ℹ 长期未访问 {len(absent)} 头（{_ids(absent['responder'])}）："
+                    "如果已离场，把耳标号写进结果文件夹里的“离场猪.txt”，就不再报警", None))
+    if w.removed:
+        out.append((f"ℹ 离场名单上有 {len(w.removed)} 头猪，其中 {w.removed_found} 头在本次数据中，已不报警", None))
+    if w.behind_days > 1 and not looked_back:
+        out.append((f"⚠ 最新数据是 {w.behind_days} 天前（{_date(s['data_last_date'])}）的。"
                     "如果是每天的监控，请检查测定站的导出文件是否更新。", "warn"))
     return out
 
 
 def run_zh(data, out_dir, sink: Sink, format: str = "xlsx", workers: int | None = None,
-           station: str | None = None, time_zone: str = "local", **monitor_args) -> dict | None:
+           station: str | None = None, time_zone: str = "local", pig_drop_pct: float = 50,
+           **monitor_args) -> dict | None:
     """Run the monitor as ``monitor_to_folder()`` does and write the run in
     Chinese to ``sink``. Returns the same dict, or None when it failed (the
     reason is in the lines)."""
     from ._monitor import run_monitor
     from ._prep import prep_visits
-    from ._report import _n_workers, write_monitor_report
+    from ._report import _n_workers
+    from ._report_zh import write_report_zh
+    from ._watch import alerts_table, choose_end_date, read_removed, watch
     from ._station import read_station, resolve_files
     from ._tables import write_monitor_tables
 
@@ -323,11 +331,16 @@ def run_zh(data, out_dir, sink: Sink, format: str = "xlsx", workers: int | None 
                  f"{n_days} 天；{100 * (~ident).mean() if len(v) else 0:.1f}% 的访问没读到耳标")
 
             begin(2)
+            looked_back = monitor_args.get("end_date") is not None
+            end, end_note = choose_end_date(v, monitor_args.get("end_date"))
+            if end is not None and not looked_back:
+                monitor_args["end_date"] = end
             mon = run_monitor(v, verbose=0, **monitor_args)
             del v
             s = mon.settings
+            w = watch(mon, removed=read_removed(out_dir), pig_drop_pct=pig_drop_pct, end_note=end_note)
             done(f"{_date(s['start_date'])} 至 {_date(s['end_date'])}，{s['days']} 天"
-                 + ("（按截止日期回看）" if monitor_args.get("end_date") else ""))
+                 + ("（按截止日期回看）" if looked_back else "（最后一天不完整，用前一天）" if end_note else ""))
 
             n_locs = mon.stations["location"].nunique()
             n_w = _n_workers(workers, n_locs)
@@ -339,11 +352,14 @@ def run_zh(data, out_dir, sink: Sink, format: str = "xlsx", workers: int | None 
                               START[3] + (START[4] - START[3]) * k / max(total, 1))
 
             folder = Path(out_dir) / _date(s["end_date"])
-            report = write_monitor_report(mon, folder, workers=workers, progress=plotted, verbose=0)
+            report = write_report_zh(mon, w, folder, workers=workers, progress=plotted,
+                                     looked_back=looked_back)
             done(f"{n_locs} 台测定站，每台 4 张图{how}")
 
             begin(4)
-            tables = write_monitor_tables(mon, folder, format=format, verbose=0)
+            from dataclasses import replace
+            tables = write_monitor_tables(replace(mon, alerts=alerts_table(w)), folder, format=format,
+                                          verbose=0)
             done("报告和 Excel 工作簿已保存" if format == "xlsx"
                  else f"报告和 {len(tables)} 个 CSV 文件已保存")
     except Abort as e:
@@ -366,7 +382,7 @@ def run_zh(data, out_dir, sink: Sink, format: str = "xlsx", workers: int | None 
         return None
 
     sink.line(_rule("结论"), "head")
-    for text, tag in _conclusion(mon):
+    for text, tag in _conclusion(mon, w, looked_back):
         sink.line(text, tag)
     shown = set()
     for kind, text in notes:
@@ -374,8 +390,8 @@ def run_zh(data, out_dir, sink: Sink, format: str = "xlsx", workers: int | None 
         if zh and zh not in shown:
             shown.add(zh)
             sink.line(f"ℹ {zh}", "warn" if kind in ("warning", "danger") else None)
-        elif zh is None and kind in ("warning", "danger"):
+        elif zh is None and kind in ("warning", "danger") and not re.match(r"\d+ alerts?:", text):
             sink.detail(f"   ({kind}) {text}")
     sink.line(f"共用时 {_secs(time.perf_counter() - t_all)}。报告：{report.resolve()}", None)
     sink.progress("", 1.0)
-    return {"monitor": mon, "folder": folder, "report": report, "tables": tables}
+    return {"monitor": mon, "watch": w, "folder": folder, "report": report, "tables": tables}

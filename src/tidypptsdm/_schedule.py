@@ -14,6 +14,7 @@ from ._monitor import _fmt_date, run_monitor
 from ._report import write_monitor_report
 from ._tables import write_monitor_tables
 
+APP_ARGS = ("pig_drop_pct",)   # settings of the desktop app (its scheduled task) only
 MONITOR_ARGS = ("days", "end_date", "house_width", "low_feed_kg", "max_unidentified_pct",
                 "max_feed_drop_pct", "iqr_k", "station", "time_zone")
 
@@ -113,7 +114,7 @@ def schedule_monitor(folder, out_dir, time: str = "07:30", taskname: str = "tidy
             raise Abort("`taskname` may contain only letters, digits, '_' and '-'.")
         if format not in ("xlsx", "csv"):
             raise Abort("`format` must be 'xlsx' or 'csv'.")
-        bad = sorted(set(monitor_args) - set(MONITOR_ARGS))
+        bad = sorted(set(monitor_args) - set(MONITOR_ARGS) - set(APP_ARGS))
         if bad:
             raise Abort(f"Unknown argument(s) {bad}; allowed: {list(MONITOR_ARGS)}.")
         out_dir.mkdir(parents=True, exist_ok=True)

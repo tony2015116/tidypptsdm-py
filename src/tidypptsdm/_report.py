@@ -36,7 +36,9 @@ def _draw_station(mon: Monitor, loc: str, img: Path, dpi: int) -> list[tuple]:
     return [(r.location, r.type, Path(r.file).name, bool(r.saved)) for r in sv.itertuples()]
 
 
-def _draw_chunk(mon: Monitor, locs: list[str], img: Path, dpi: int) -> list[tuple]:
+def _draw_chunk(mon: Monitor, locs: list[str], img: Path, dpi: int, zh: bool = False) -> list[tuple]:
+    from ._plots import set_language
+    set_language(zh)  # a worker process starts in English
     out = []
     for loc in locs:
         out += _draw_station(mon, loc, img, dpi)
@@ -84,7 +86,7 @@ def _no_main_rerun():
 
 
 def _draw_all(mon: Monitor, locs: list[str], img: Path, dpi: int, workers: int,
-              progress) -> list[tuple]:
+              progress, zh: bool = False) -> list[tuple]:
     if workers > 1:
         # round robin, so that every chunk has stations from all houses
         chunks = [locs[i::workers * 3] for i in range(min(len(locs), workers * 3))]
@@ -93,7 +95,7 @@ def _draw_all(mon: Monitor, locs: list[str], img: Path, dpi: int, workers: int,
         try:
             with _no_main_rerun():  # the processes start while the jobs are handed out
                 ex = ProcessPoolExecutor(max_workers=workers)
-                futures = {ex.submit(_draw_chunk, _subset(mon, c), c, img, dpi): c for c in chunks}
+                futures = {ex.submit(_draw_chunk, _subset(mon, c), c, img, dpi, zh): c for c in chunks}
             for fut in as_completed(futures):
                 rows += fut.result()
                 done.update(futures[fut])
@@ -109,10 +111,18 @@ def _draw_all(mon: Monitor, locs: list[str], img: Path, dpi: int, workers: int,
         out = rows
     else:
         out, done = [], set()
-    for loc in locs:
-        out += _draw_station(mon, loc, img, dpi)
-        done.add(loc)
-        progress(len(done))
+    if not locs:
+        return out
+    from ._plots import set_language
+    set_language(zh)
+    try:
+        for loc in locs:
+            out += _draw_station(mon, loc, img, dpi)
+            done.add(loc)
+            progress(len(done))
+    finally:
+        if zh:
+            set_language(False)
     return out
 
 

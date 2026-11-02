@@ -39,6 +39,39 @@ PIG_COLOURS = ["#A6CEE3", "#1F78B4", "#B2DF8A", "#33A02C", "#FB9A99", "#E31A1C",
                "#A6761D", "#666666"]
 
 
+# ---- language: English for the package (as the R package); Chinese in the desktop app ------
+
+_LANG = {"zh": False}
+CJK_FONTS = ["Microsoft YaHei", "DengXian", "SimHei", "Noto Sans CJK SC", "Source Han Sans SC",
+             "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "PingFang SC", "Heiti SC", "Arial Unicode MS"]
+
+
+def _tr(en: str, zh: str, **kw) -> str:
+    return (zh if _LANG["zh"] else en).format(**kw)
+
+
+def cjk_font() -> str | None:
+    """A font with Chinese characters on this computer, or None."""
+    from matplotlib import font_manager
+    names = {f.name for f in font_manager.fontManager.ttflist}
+    return next((f for f in CJK_FONTS if f in names), None)
+
+
+def set_language(zh: bool) -> bool:
+    """Chinese plot labels (only when a Chinese font is found). Returns
+    whether the plots are in Chinese."""
+    font = cjk_font() if zh else None
+    _LANG["zh"] = font is not None
+    if font is not None:
+        matplotlib.rcParams["font.sans-serif"] = [font, "DejaVu Sans"]
+        matplotlib.rcParams["font.family"] = "sans-serif"
+        matplotlib.rcParams["axes.unicode_minus"] = False
+    else:
+        matplotlib.rcParams["font.sans-serif"] = matplotlib.rcParamsDefault["font.sans-serif"]
+        matplotlib.rcParams["axes.unicode_minus"] = matplotlib.rcParamsDefault["axes.unicode_minus"]
+    return _LANG["zh"]
+
+
 def _ramp(colours: list[str], n: int) -> list[str]:
     if n <= len(colours):
         return colours[:n]
@@ -127,6 +160,13 @@ def _strip_label(ax, text: str) -> None:
 TREND = [("n_pigs", "Pigs"), ("n_visits", "Visits"), ("pct_unidentified", "Unidentified (%)"),
          ("occupation_h", "Occupation (h)"), ("feed_kg", "Feed (kg)"),
          ("feed_per_pig_kg", "Feed per pig (kg)"), ("weight_kg", "Weight (kg)")]
+LABEL_ZH = {"Pigs": "猪数", "Visits": "访问次数", "Unidentified (%)": "未识别 (%)",
+            "Occupation (h)": "占用 (小时)", "Feed (kg)": "采食 (kg)", "Feed per pig (kg)": "头均采食 (kg)",
+            "Weight (kg)": "体重 (kg)", "Occupation (min)": "占用 (分钟)"}
+
+
+def _label(en: str) -> str:
+    return LABEL_ZH[en] if _LANG["zh"] else en
 
 
 def _plot_trend(mon: Monitor, loc: str) -> StationPlot:
@@ -147,13 +187,14 @@ def _plot_trend(mon: Monitor, loc: str) -> StationPlot:
         y = d[col].astype(float)
         ax.plot(d["date"], y, color=colour, lw=1.2)
         ax.plot(d["date"], y, "o", color=colour, ms=3.5)
-        _strip_label(ax, label)
+        _strip_label(ax, _label(label))
         if col in ("n_pigs", "n_visits"):
             ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
     _date_axis(axes[-1], s)
-    sub = (f"{s['start_date']:%Y-%m-%d} to {s['end_date']:%Y-%m-%d}; weight band: lightest to heaviest pig"
-           + ("; red: no visits" if len(down) else ""))
-    _title(fig, f"Station {loc}", sub)
+    sub = (_tr("{a} to {b}; weight band: lightest to heaviest pig", "{a} 至 {b}；灰色带：最轻到最重的猪",
+               a=f"{s['start_date']:%Y-%m-%d}", b=f"{s['end_date']:%Y-%m-%d}")
+           + (_tr("; red: no visits", "；红色：没有访问") if len(down) else ""))
+    _title(fig, _tr("Station {loc}", "测定站 {loc}", loc=loc), sub)
     fig.subplots_adjust(left=4.6 / width, right=0.98, bottom=1.4 / height, top=_top_margin(fig), hspace=0.12)
     return StationPlot(loc, "trend", fig, width, height)
 
@@ -162,14 +203,15 @@ def _plot_trend(mon: Monitor, loc: str) -> StationPlot:
 
 def _plot_intake(mon: Monitor, loc: str) -> StationPlot:
     s = mon.settings
-    title = f"Station {loc} - feed intake per pig"
+    title = _tr("Station {loc} - feed intake per pig", "测定站 {loc}：每头猪的采食量", loc=loc)
     d = mon.pigs[(mon.pigs["location"] == loc) & (mon.pigs["n_visits"] > 0)]
     if len(d) == 0:
-        return _empty(loc, "intake", title, "No identified pig in the window")
+        return _empty(loc, "intake", title, _tr("No identified pig in the window", "窗口内没有识别到的猪"))
     pigs = natural_order(d["responder"])
     ps = mon.pig_summary[mon.pig_summary["location"] == loc].set_index("responder")["status"]
     flags = [ps.get(p) for p in pigs]
-    labels = [p + (" [no visit]" if f == "no_visit" else " [low feed]" if f == "low_feed" else "")
+    labels = [p + (_tr(" [no visit]", " [未访问]") if f == "no_visit"
+                   else _tr(" [low feed]", " [低采食]") if f == "low_feed" else "")
               for p, f in zip(pigs, flags)]
     kg = d.pivot_table(index="date", columns="responder", values="feed_kg", aggfunc="sum") \
         .reindex(columns=pigs).fillna(0.0)
@@ -191,21 +233,22 @@ def _plot_intake(mon: Monitor, loc: str) -> StationPlot:
             ax.bar(x, vals, width=bar_w, bottom=bottom, color=c, edgecolor="white", linewidth=0.3)
             bottom += vals
     ax1.set_ylim(0, 108)
-    ax1.set_ylabel("Share of station feed (%)", fontsize=9, color="#333333")
+    ax1.set_ylabel(_tr("Share of station feed (%)", "占全站采食 (%)"), fontsize=9, color="#333333")
     ax2.set_ylim(0, max(total.max(), 0.1) * 1.1)
-    ax2.set_ylabel("Feed intake (kg)", fontsize=9, color="#333333")
+    ax2.set_ylabel(_tr("Feed intake (kg)", "采食量 (kg)"), fontsize=9, color="#333333")
     if s["days"] <= 31:
         for xi, t in zip(x, total):
             ax2.text(xi, t, f"{t:.1f}", ha="center", va="bottom", fontsize=7, color=INK)
     _date_axis(ax2, s)
     handles = [matplotlib.patches.Patch(facecolor=c, label=l) for c, l in zip(colours, labels)]
-    leg = fig.legend(handles=handles, title="Pig", loc="center left", bbox_to_anchor=(0, 0.5),
+    leg = fig.legend(handles=handles, title=_tr("Pig", "猪"), loc="center left", bbox_to_anchor=(0, 0.5),
                      ncol=ncol, fontsize=8, title_fontsize=9, frameon=False,
                      handlelength=1.2, handleheight=1.0)
     n_flag = sum(f in ("no_visit", "low_feed") for f in flags)
-    sub = f"{len(pigs)} pigs; bottom: daily total above the bar"
+    sub = _tr("{n} pigs; bottom: daily total above the bar", "{n} 头猪；下图柱顶为当天总量", n=len(pigs))
     if n_flag:
-        sub += f"; {n_flag} pig{'s' if n_flag > 1 else ''} marked in the legend on {s['end_date']:%Y-%m-%d}"
+        sub += _tr("; {k} pig{pl} marked in the legend on {d}", "；图例中标出 {k} 头猪（{d}）",
+                   k=n_flag, pl="s" if n_flag > 1 else "", d=f"{s['end_date']:%Y-%m-%d}")
     _title(fig, title, sub)
     # size the figure so that the legend, however long the pig IDs are, sits
     # right of the plots and inside the picture
@@ -224,10 +267,10 @@ def _plot_intake(mon: Monitor, loc: str) -> StationPlot:
 
 def _plot_weight(mon: Monitor, loc: str) -> StationPlot:
     s = mon.settings
-    title = f"Station {loc} - recorded body weights"
+    title = _tr("Station {loc} - recorded body weights", "测定站 {loc}：称到的体重", loc=loc)
     d = mon.visits[(mon.visits["location"] == loc) & mon.visits["identified"] & mon.visits["weight"].notna()]
     if len(d) == 0:
-        return _empty(loc, "weight", title, "No body weight in the window")
+        return _empty(loc, "weight", title, _tr("No body weight in the window", "窗口内没有体重记录"))
     width, height = _plot_width(s["days"]), 10
     fig, ax = plt.subplots(figsize=(width * CM, height * CM))
     _style(ax)
@@ -241,8 +284,9 @@ def _plot_weight(mon: Monitor, loc: str) -> StationPlot:
                flierprops=dict(marker="o", markerfacecolor=RED, markeredgecolor=RED, markersize=2.5))
     ax.xaxis_date()
     _date_axis(ax, s)
-    ax.set_ylabel("Body weight (kg)", fontsize=9)
-    _title(fig, title, "All weights of the identified visits; red: outside the whiskers")
+    ax.set_ylabel(_tr("Body weight (kg)", "体重 (kg)"), fontsize=9)
+    _title(fig, title, _tr("All weights of the identified visits; red: outside the whiskers",
+                           "识别到的访问的全部体重；红点：须线以外"))
     fig.subplots_adjust(left=1.8 / width, right=0.98, bottom=1.6 / height, top=_top_margin(fig))
     return StationPlot(loc, "weight", fig, width, height)
 
@@ -260,12 +304,12 @@ def _plot_hours(mon: Monitor, loc: str) -> StationPlot:
     for ax, (col, label), colour in zip(axes, HOURS, OKABE[:3]):
         _style(ax, grid_x=False)
         ax.bar(d["hour"], d[col].astype(float), width=0.8, color=colour)
-        _strip_label(ax, label)
+        _strip_label(ax, _label(label))
     axes[-1].set_xticks(range(24))
     axes[-1].tick_params(axis="x", labelsize=8)
     axes[-1].set_xlim(-0.6, 23.6)
-    axes[-1].set_xlabel("Hour of the day", fontsize=9)
-    _title(fig, f"Station {loc} - hours of {s['end_date']:%Y-%m-%d}")
+    axes[-1].set_xlabel(_tr("Hour of the day", "时（按进站时间）"), fontsize=9)
+    _title(fig, _tr("Station {loc} - hours of {d}", "测定站 {loc}：{d} 各小时", loc=loc, d=f"{s['end_date']:%Y-%m-%d}"))
     fig.subplots_adjust(left=4.2 / width, right=0.98, bottom=1.4 / height, top=_top_margin(fig, False), hspace=0.12)
     return StationPlot(loc, "hours", fig, width, height)
 

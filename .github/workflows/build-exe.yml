@@ -51,8 +51,11 @@ jobs:
           Get-Content smoke/outerr/tidypptsdm.log -Encoding utf8 | ForEach-Object { Write-Output "::notice title=error-log::$_" }
           if ($p.ExitCode -ne 1) { throw "an error must end with exit code 1" }
           if (-not (Select-String -Path smoke/outerr/tidypptsdm.log -Encoding utf8 -Pattern "怎么办" -Quiet)) { throw "no advice in the log" }
-          if (-not (Test-Path smoke/out/2024-05-25/index.html)) { throw "no report" }
-          if (-not (Test-Path smoke/out/2024-05-25/monitor.xlsx)) { throw "no workbook" }
+          # the example's last day ends at 20:29: the app monitors the day before
+          if (-not (Test-Path smoke/out/2024-05-24/index.html)) { throw "no report" }
+          if (-not (Test-Path smoke/out/2024-05-24/monitor.xlsx)) { throw "no workbook" }
+          if (-not (Select-String -Path smoke/out/2024-05-24/index.html -Encoding utf8 -Pattern "今日待办" -Quiet)) { throw "the report is not the Chinese one" }
+          python -c "from tidypptsdm._plots import cjk_font; print('::notice title=font::Chinese font for the plots:', cjk_font())"
       - name: Plots on several cores in the exe (same files, faster)
         shell: pwsh
         run: |

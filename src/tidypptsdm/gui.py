@@ -20,7 +20,7 @@ SETTINGS_FILE = Path.home() / ".tidypptsdm.json"
 
 DEFAULTS = {
     "data": "", "out": "", "days": 7, "house_width": 1, "low_feed_kg": 0.5,
-    "max_unidentified_pct": 5.0, "max_feed_drop_pct": 30.0, "station": "自动识别",
+    "max_unidentified_pct": 5.0, "max_feed_drop_pct": 30.0, "pig_drop_pct": 50.0, "station": "自动识别",
     "format": "xlsx", "time": "07:30", "end_date": "",
 }
 
@@ -101,7 +101,7 @@ class App:
         s = load_settings()
 
         root.title(f"tidypptsdm {__version__} - 测定站日常监控")
-        root.minsize(720, 560)
+        root.minsize(760, 640)
         try:
             ttk.Style().theme_use("vista" if sys.platform.startswith("win") else "clam")
         except tk.TclError:
@@ -133,6 +133,7 @@ class App:
         self.v_low = tk.StringVar(value=str(s["low_feed_kg"]))
         self.v_unid = tk.StringVar(value=str(s["max_unidentified_pct"]))
         self.v_drop = tk.StringVar(value=str(s["max_feed_drop_pct"]))
+        self.v_pigdrop = tk.StringVar(value=str(s.get("pig_drop_pct", 50.0)))
         self.v_station = tk.StringVar(value=s["station"])
         self.v_format = tk.StringVar(value=s["format"])
 
@@ -140,16 +141,21 @@ class App:
         fields = [
             ("监控天数", self.v_days, "天"), ("栋号位数", self.v_house, "测定站编号前几位是栋号"),
             ("低采食阈值", self.v_low, "kg/天"), ("未识别报警", self.v_unid, "%"),
-            ("采食下降报警", self.v_drop, "% (比前几天平均)"),
+            ("站采食下降报警", self.v_drop, "% (头均，比前几天平均)"),
+            ("个体采食骤降", self.v_pigdrop, "% (比这头猪前几天平均；0 = 不检查)"),
         ]
         for i, (label, var, unit) in enumerate(fields):
             r, c = divmod(i, 2)
             ttk.Label(f_set, text=label).grid(row=r, column=c * 3, sticky="w", **pad)
             ttk.Entry(f_set, textvariable=var, width=8).grid(row=r, column=c * 3 + 1, sticky="w", **pad)
             ttk.Label(f_set, text=unit, foreground="#667085").grid(row=r, column=c * 3 + 2, sticky="w", **pad)
-        ttk.Label(f_set, text="测定站类型").grid(row=2, column=3, sticky="w", **pad)
+        ttk.Label(f_set, text="测定站类型").grid(row=3, column=3, sticky="w", **pad)
         ttk.Combobox(f_set, textvariable=self.v_station, values=list(STATION_CHOICES), width=8,
-                     state="readonly").grid(row=2, column=4, sticky="w", **pad)
+                     state="readonly").grid(row=3, column=4, sticky="w", **pad)
+        ttk.Button(f_set, text="离场猪名单…", command=self.edit_removed).grid(row=5, column=0, columnspan=2,
+                                                                         sticky="w", **pad)
+        ttk.Label(f_set, text="死亡、淘汰或转出的猪：写进名单后不再报警（名单在结果文件夹里）",
+                  foreground="#667085").grid(row=5, column=2, columnspan=4, sticky="w", **pad)
         ttk.Label(f_set, text="截止日期").grid(row=4, column=0, sticky="w", **pad)
         ttk.Entry(f_set, textvariable=self.v_end, width=12).grid(row=4, column=1, sticky="w", **pad)
         ttk.Label(f_set, text="留空 = 数据的最后一天；回看历史时填，如 2025-01-10",
@@ -276,7 +282,8 @@ class App:
                 "data": self.v_data.get().strip(), "out": self.v_out.get().strip(),
                 "days": int(self.v_days.get()), "house_width": int(self.v_house.get()),
                 "low_feed_kg": float(self.v_low.get()), "max_unidentified_pct": float(self.v_unid.get()),
-                "max_feed_drop_pct": float(self.v_drop.get()), "station": self.v_station.get(),
+                "max_feed_drop_pct": float(self.v_drop.get()), "pig_drop_pct": float(self.v_pigdrop.get()),
+                "station": self.v_station.get(),
                 "format": self.v_format.get(), "time": self.v_time.get().strip(),
                 "end_date": self.v_end.get().strip(),
             }
@@ -286,6 +293,8 @@ class App:
             raise Abort("请选择导出文件夹。")
         if not s["out"]:
             raise Abort("请选择结果文件夹。")
+        if not 0 <= s["pig_drop_pct"] < 100:
+            raise Abort("个体采食骤降请填 0 到 100 之间的数（0 = 不检查）。")
         if s["end_date"]:
             import re as _re
             if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s["end_date"]):
@@ -296,7 +305,7 @@ class App:
     def _monitor_args(s: dict) -> dict:
         return dict(days=s["days"], house_width=s["house_width"], low_feed_kg=s["low_feed_kg"],
                     max_unidentified_pct=s["max_unidentified_pct"], max_feed_drop_pct=s["max_feed_drop_pct"],
-                    station=STATION_CHOICES.get(s["station"]),
+                    station=STATION_CHOICES.get(s["station"]), pig_drop_pct=s["pig_drop_pct"],
                     # times written with a time zone (…Z) are shown in Beijing time;
                     # ordinary exports have none and are taken as they are
                     time_zone="+08:00")
@@ -344,7 +353,8 @@ class App:
         if res is None:
             self.q.put(("done", False, None, None, 0, 0))
         else:
-            a = res["monitor"].alerts
+            a = res["watch"].alerts
+            a = a[a["level"] != "absent"]
             self.q.put(("done", True, res["report"], res["folder"], len(a),
                         int((a["level"] == "danger").sum())))
 
@@ -360,6 +370,20 @@ class App:
         self.b_folder.configure(state="normal")
         self.status.set(f"完成：{n_alerts} 条警报（{n_danger} 条严重）。报告已在浏览器中打开。")
         self.open_report()
+
+    def edit_removed(self) -> None:
+        from ._watch import ensure_removed_file
+        out = self.v_out.get().strip()
+        if not out:
+            self._error("请先选择结果文件夹：离场猪名单保存在结果文件夹里。")
+            return
+        try:
+            f = ensure_removed_file(out)
+        except OSError as e:
+            self._error(f"无法创建离场猪名单：{e}")
+            return
+        open_path(f)
+        self.status.set(f"在记事本里每行写一个耳标号，保存后下次运行生效：{f}")
 
     def open_report(self) -> None:
         if self.last_report and self.last_report.exists():

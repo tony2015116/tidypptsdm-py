@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--out", required=True, help="folder for the results; one subfolder per day")
     r.add_argument("--format", choices=["xlsx", "csv"], default="xlsx", help="tables (default xlsx)")
     r.add_argument("--open", action="store_true", help="open the report in the web browser")
+    r.add_argument("--pig-drop-pct", type=float, default=50,
+                   help="desktop app: alert when a pig eats this much less than on its earlier days, %% (default 50)")
     r.add_argument("--workers", type=int, default=None,
                    help="processes that draw the plots (default: one per core, at most 8)")
     r.add_argument("-q", "--quiet", action="store_true", help="no messages")
@@ -111,11 +113,11 @@ def main(argv: list[str] | None = None) -> int:
             # the desktop app's scheduled task: the run in Chinese, as in the app
             from ._zh import FileSink, run_zh
             res = run_zh(a.data, a.out, FileSink(sys.stderr), format=a.format, workers=a.workers,
-                         **_monitor_kwargs(a))
+                         pig_drop_pct=a.pig_drop_pct, **_monitor_kwargs(a))
             sys.stderr.write("\n")
             if res is None:
                 return 1
-            return 2 if (res["monitor"].alerts["level"] == "danger").any() else 0
+            return 2 if (res["watch"].alerts["level"] == "danger").any() else 0
         if a.command == "run":
             import datetime
 
