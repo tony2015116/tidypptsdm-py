@@ -121,6 +121,16 @@ def _top_margin(fig, subtitle: bool = True) -> float:
 
 def _date_axis(ax, s: dict, rotate: bool = True) -> None:
     start, end, days = s["start_date"], s["end_date"], s["days"]
+    if _LANG["zh"]:
+        # desktop app: every day, vertical (fits: each day is 0.7 cm wide)
+        ax.set_xticks(list(pd.date_range(start, end, freq="D")))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+        ax.set_xlim(start - pd.Timedelta(hours=14), end + pd.Timedelta(hours=14))
+        if rotate:
+            for lab in ax.get_xticklabels():
+                lab.set_rotation(90)
+                lab.set_ha("center")
+        return
     step = max(1, int(np.ceil(days / 14)))
     ticks = list(pd.date_range(end, start, freq=f"-{step}D"))[::-1]
     ax.set_xticks(ticks)
