@@ -152,7 +152,17 @@ def _empty(location: str, kind: str, title: str, text: str) -> StationPlot:
 
 
 def _strip_label(ax, text: str) -> None:
+    if _LANG["zh"]:
+        # desktop app: vertical, the unit on a second line, so the panels get the width
+        ax.set_ylabel(text.replace(" (", "\n("), rotation=90, ha="center", va="bottom", fontsize=8.5,
+                      color="#333333", labelpad=4, linespacing=1.1)
+        return
     ax.set_ylabel(text, rotation=0, ha="right", va="center", fontsize=9, color="#333333", labelpad=8)
+
+
+def _left(en_cm: float) -> float:
+    """Left margin in cm: room for the horizontal labels (English) or the vertical ones."""
+    return 2.1 if _LANG["zh"] else en_cm
 
 
 # ---- trend -----------------------------------------------------------------------------
@@ -195,7 +205,7 @@ def _plot_trend(mon: Monitor, loc: str) -> StationPlot:
                a=f"{s['start_date']:%Y-%m-%d}", b=f"{s['end_date']:%Y-%m-%d}")
            + (_tr("; red: no visits", "；红色：没有访问") if len(down) else ""))
     _title(fig, _tr("Station {loc}", "测定站 {loc}", loc=loc), sub)
-    fig.subplots_adjust(left=4.6 / width, right=0.98, bottom=1.4 / height, top=_top_margin(fig), hspace=0.12)
+    fig.subplots_adjust(left=_left(4.6) / width, right=0.98, bottom=1.4 / height, top=_top_margin(fig), hspace=0.12)
     return StationPlot(loc, "trend", fig, width, height)
 
 
@@ -305,12 +315,15 @@ def _plot_hours(mon: Monitor, loc: str) -> StationPlot:
         _style(ax, grid_x=False)
         ax.bar(d["hour"], d[col].astype(float), width=0.8, color=colour)
         _strip_label(ax, _label(label))
+        if _LANG["zh"] and col == "n_visits":
+            ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
     axes[-1].set_xticks(range(24))
     axes[-1].tick_params(axis="x", labelsize=8)
     axes[-1].set_xlim(-0.6, 23.6)
     axes[-1].set_xlabel(_tr("Hour of the day", "时（按进站时间）"), fontsize=9)
     _title(fig, _tr("Station {loc} - hours of {d}", "测定站 {loc}：{d} 各小时", loc=loc, d=f"{s['end_date']:%Y-%m-%d}"))
-    fig.subplots_adjust(left=4.2 / width, right=0.98, bottom=1.4 / height, top=_top_margin(fig, False), hspace=0.12)
+    fig.subplots_adjust(left=_left(4.2) / width, right=0.98, bottom=1.4 / height, top=_top_margin(fig, False),
+                        hspace=0.12)
     return StationPlot(loc, "hours", fig, width, height)
 
 
